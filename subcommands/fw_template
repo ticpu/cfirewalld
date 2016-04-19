@@ -1,0 +1,10 @@
+#!/bin/bash
+
+source fw_common.sh
+
+# Define proper usage.
+if [ -z ${1-} ]; then
+	_fw_usage ""
+fi
+
+exit 0

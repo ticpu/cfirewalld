@@ -1,0 +1,39 @@
+#!/bin/bash
+
+# Variables
+if [ -z "${VARS_SOURCED-}" ]; then
+	export DEBUG=1
+	export TRACE=0
+
+	# Globals
+	export _F=2
+	export _NAME="cfirewalld"
+	export _PROG="${0##*/}"
+	export CACHEDIR=`mktemp -d /tmp/${_PROG}.XXXXXX`
+	export COMMIT_FILE="/tmp/cfw_commit_in_progress"
+	export DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+	export FWD="CFWDEL_"
+	export FWR="CFW_"
+	export FWTMP="CFWTMP_"
+	export IPTABLES_TABLES="filter nat mangle"
+	export IPTABLES_CHAINS="prerouting postrouting input forward output"
+	export LOG_SOCKET="/tmp/cfirewalld-log.socket"
+	export PROG=${0##*/}
+	export VARS_SOURCED=1
+	# Global with deps
+	export FAIL="$CACHEDIR/failed"
+	export PATH=$DIR:$PATH
+
+	# Programs
+	export SUDO="`which sudo`"
+	export DIG="_run `which dig`"
+	export IPSET="_run `which ipset`"
+	export IP4TABLES="_run `which iptables`"
+	export IP6TABLES="_run `which ip6tables`"
+	export IP4TABLES_SAVE="_run `which iptables-save`"
+	export IP6TABLES_SAVE="_run `which ip6tables-save`"
+
+	# Runtime
+	export RUNDIR=/run/${_NAME}
+	export IPSET_PREFIX_FILE=$RUNDIR/ipset_prefix
+fi

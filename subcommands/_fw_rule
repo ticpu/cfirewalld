@@ -1,0 +1,144 @@
+#!/bin/bash
+
+source fw_common.sh
+
+ERRLOG="$CACHEDIR/${0##*/}_errors.log"
+
+# Define proper usage.
+if [ -z ${6-} ]; then
+	_fw_usage "CALLER TABLE CHAIN SOURCE DESTINATION IPTABLES_PARAMS ...
+	CALLER caller name, usually set by fw_rule wrapper.
+	TABLE is an iptables table.
+	CHAIN is either a custom chain or an iptables built-in.
+		Start chain with + to make it global (without a prefix).
+	SOURCE is either created with fw_alias, an IP, a network or any.
+	DESTINATION is either created with fw_alias, an IP, a network or any.
+	IPTABLES_PARAM is whatever appears after iptables -A CHAIN."
+fi
+
+# Extract arguments
+v_caller="$1"; shift
+v_table="$1"; shift
+v_chain="${1,,}"; shift
+v_src="$1"; shift
+v_dst="$1"; shift
+
+# Global chain
+if [[ $v_chain =~ ^\+ ]]; then
+	v_subchain="${FWTMP}${v_chain}"
+else
+	v_subchain="${FWTMP}$(echo "${v_caller}" | sed -rne 's:.*/([0-9]+_[A-Za-z0-9_]+)\.sh:\1:p')+${v_chain}"
+fi
+
+[[ $v_subchain =~ ^[A-Za-z0-9_+]+$ ]] || _fw_usage "CHAIN must be alpha-numeric characters. Not: $v_subchain"
+[[ $v_subchain =~ __ ]] && _fw_usage "CHAIN and CALLER must not be empty. Not: $v_subchain"
+
+
+type_count () {
+	egrep '^Type:' | tr -cd ',' | wc -c
+}
+
+# Take an IP alias and one direction and output one or multiple directions
+# for iptables.
+ipset_direction () {
+	local direction="$1"
+	local direction_string="$1"
+	local ipalias="$2"
+	local set_count=""
+
+	# Count how many types.
+	set_count=$($IPSET list "$ipalias" | type_count)
+
+	# Append counts.
+	for i in $(seq $set_count)
+	do
+		direction_string="${direction_string},${direction}"
+	done
+
+	# Output one or multiple directions as dir,dir,dir...
+	echo "$direction_string"
+
+	return 0
+}
+
+# Convert alias, IP or any to an iptables string.
+alias_to_iptables () {
+	local family=$1
+	local direction=$2
+	local address=$3
+
+	if [[ $address =~ [.:] ]]; then
+		if [[ $direction == "src" ]]; then
+			echo "-s $address"
+		elif [[ $direction == "dst" ]]; then
+			echo "-d $address"
+		fi
+	elif [[ ${address,,} == "any" ]]; then
+		return 0
+	else
+		if [[ $family == "ipv6" ]]; then
+			address="${address}_v6"
+		fi
+
+		address=${PREFIX_IPSET}${address}
+		direction=`ipset_direction $direction $address `
+		echo "-m set --match-set $address $direction"
+	fi
+
+	return 0
+}
+
+ipt_v4 () {
+	local src=`alias_to_iptables ipv4 src $v_src`
+	local dst=`alias_to_iptables ipv4 dst $v_dst`
+	$IP4TABLES -t $v_table -A $v_subchain $src $dst "$@"
+}
+
+ipt_v6 () {
+	local src=`alias_to_iptables ipv6 src $v_src`
+	local dst=`alias_to_iptables ipv6 dst $v_dst`
+	$IP6TABLES -t $v_table -A $v_subchain $src $dst "$@"
+}
+
+ipt () {
+	# Instead of checking which command works on v4 and which work on v6, try both.
+	local iptv4ok=1
+	local iptv6ok=1
+
+	# Try IPv4.
+	ipt_v4 "$@" 2>$ERRLOG || iptv4ok=0
+	# Then IPv6.
+	ipt_v6 "$@" 2>$ERRLOG || iptv6ok=0
+
+	# Make sure at least one succeded.
+	if [ $iptv4ok -eq 1 ] || [ $iptv6ok -eq 1 ]; then
+		return 0
+	else
+		echo $iptv4ok $iptv6ok
+		cat $ERRLOG 1>&2
+		return 1
+	fi
+}
+
+# Since we do not know if the chain exist, the easiest way to ensure it does
+# is to create it, else we would have to check with iptables-save. Block all
+# errors, anyway, if any error occurs, appending to the chain will fail too.
+$IP4TABLES -t $v_table -N $v_subchain 2>$ERRLOG || [ $? -lt 2 ] || _fw_abort `cat $ERRLOG`
+$IP6TABLES -t $v_table -N $v_subchain 2>$ERRLOG || [ $? -lt 2 ] || _fw_abort `cat $ERRLOG`
+
+# Check for -j and add TMP prefix to global chains.
+ipt_args=( "$@" )
+ipt_args_no=${#ipt_args[@]}
+
+for I in `seq 0 1 $(($ipt_args_no-1))`; do
+	if [[ "${ipt_args[$I]}" == "-j" ]]; then
+		ipt_j_arg_no=$((I+1))
+		if [[ ${ipt_args[$ipt_j_arg_no]} =~ ^\+ ]]; then
+			ipt_args[$ipt_j_arg_no]="${FWTMP}${ipt_args[$ipt_j_arg_no]}"
+		fi
+	fi
+done
+
+ipt "${ipt_args[@]}"
+
+exit 0

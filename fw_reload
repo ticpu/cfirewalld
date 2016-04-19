@@ -1,0 +1,77 @@
+#!/bin/bash
+#
+# cfirewalld
+# Copyright (C) 2016 "Jérôme Poulin" <jeromepoulin@gmail.com>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# Needs root
+if [ $UID -ne 0 ]; then
+	echo "Re-launching program as root."
+	exec sudo -u '#0' "$0" "$@"
+fi
+
+# Globals
+set -eu
+source subcommands/fw_vars
+
+_exit_cleanup () {
+	[ -d "$CACHEDIR" ] && rm -rf "$CACHEDIR"
+	[ -e "$LOG_SOCKET" ] && rm -f "$LOG_SOCKET"
+	# Restart conntrack and send all changes to other firewall.
+	systemctl start conntrackd.service || true
+	sleep 1
+	conntrackd -B
+	conntrackd -n
+}
+
+trap _exit_cleanup EXIT
+
+# Log socket
+truncate -s 0 "$LOG_SOCKET"
+tail -f "$LOG_SOCKET" 1>&2 &
+
+cd "$DIR/.."
+
+# Stopping conntrack to prevent excessive CPU load
+systemctl stop conntrackd.service || true
+
+# Check if we weren't in the middle of applying the firewall.
+if [ -f $COMMIT_FILE ]; then
+	echo "Finalizing firewall commit before cleanup." 1>&2
+	fw_commit
+fi
+
+# Remove all FWTMP_ sets and chains.
+fw_cleanup
+
+# Load all firewall scripts.
+for F in firewall.d/*.sh
+do
+	if [ $TRACE -eq 1 ]; then
+		bash -x -E $F
+	else
+		bash -E $F
+	fi
+done
+
+# Prepare zones
+fw_prepare_zones
+
+# Apply new zones
+fw_apply
+
+[ -f $FAIL ] && { echo "Firewall has failed to apply." 1>&2; exit 1; }
+
+exit 0

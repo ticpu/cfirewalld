@@ -1,0 +1,55 @@
+#!/bin/bash
+
+source fw_common.sh
+
+# Define proper usage.
+if [ -z ${2-} ]; then
+	_fw_usage "ALIAS_NAME HOST[/MASK] [PORT] [PROTO]
+	ALIAS_NAME is to be used in fw_rule.
+	HOST is an IPv4 or IPv6.
+	MASK is a bitmask for the host in slash notation.
+	PORT is a TCP or UDP port.
+	PROTO is either tcp or udp, default is tcp."
+else
+	v_name="${PREFIX_IPSET}$1"
+	v_network="$2"
+	v_port=""
+
+	# Having . or : in alias would cause problem in fw_rule.
+	if [[ $v_name =~ [.:] ]]; then
+		_fw_usage "You can not have . or : in your alias name."
+	fi
+
+   	if [ ! -z ${3-} ]; then
+		[ ${3/*:} -gt 0 ] && [ ${3/*:} -lt 65536 ] || _fw_usage "PORT must be between 1 and 65535."
+
+		# Check for a 3 letter protocol (tcp/udp)
+		v_port="$3"
+		if [ ! -z ${4-} ]; then
+			v_proto="${4,,}"
+			[ ${#v_proto} -eq 3 ] && v_port="${v_proto}:${v_port}"
+		fi
+	fi
+
+	if [[ $v_network =~ : ]]; then
+		v_family="inet6"
+		v_name="${v_name}_v6"
+	else
+		v_family="inet"
+	fi
+fi
+
+fw_create_ipset () {
+	local params=""
+
+	if [ -z $v_port ]; then
+		$IPSET create "$v_name" hash:net family $v_family counters 2>/dev/null
+	else
+		$IPSET create "$v_name" hash:net,port family $v_family counters 2>/dev/null
+	fi
+}
+
+fw_create_ipset || true
+$IPSET add "$v_name" "${v_network}${v_port:+,$v_port}"
+
+exit 0

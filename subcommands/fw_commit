@@ -1,0 +1,73 @@
+#!/bin/bash
+
+source fw_common.sh
+
+# Define proper usage.
+if [ ! -z ${1-} ]; then
+	_fw_usage "
+	No arguments needed, commits what is already applied.
+	Can be run multiple time if failure has occured."
+fi
+
+rename_chain () {
+	local table=$ipt_cur_table
+	local chain=$ipt_cur_chain
+
+	$IPTABLES -t $table -E $chain "${2}${chain#$1}"
+}
+
+#rename_ipset () {
+#	local ipset=$ips_cur_set
+#	local from=$ipset
+#	local to="${2}${ipset#$1}"
+#
+#	$IPSET destroy $to 2>/dev/null || true
+#	$IPSET `$IPSET save $from | sed -r -n -e "s/^create $from /create $to /p"`
+#	$IPSET swap $from $to
+#}
+
+get_step () {
+	if [ -f $COMMIT_FILE ]; then
+		cat $COMMIT_FILE
+	else
+		set_step rename_chain_real_to_delete
+		get_step
+	fi
+}
+
+set_step () {
+	echo -n "$1" > $COMMIT_FILE
+}
+
+debug "Renaming iptables rules and ipsets."
+if [ -f $COMMIT_FILE ]; then
+	debug "Resuming commit operation at `get_step`."
+fi
+
+while [[ `get_step` != "done" ]]
+do
+	case `get_step` in
+		rename_chain_real_to_delete)
+			ipt_foreach_chain_starting_with "${FWR}" rename_chain "${FWR}" "${FWD}"
+			set_step rename_chain_tmp_to_real
+			;;
+
+		rename_chain_tmp_to_real)
+			ipt_foreach_chain_starting_with "${FWTMP}" rename_chain "${FWTMP}" "${FWR}"
+			set_step done
+			;;
+
+		*)
+			_fw_abort "Invalid commit command: `cat $COMMIT_FILE`.\n"\
+			"Firewall is inconsistent, can not continue,"\
+			"to force operation, delete $COMMIT_FILE."
+			;;
+	esac
+done
+
+rm -f $COMMIT_FILE
+set_current_ips_version $NEXT_IPSET_VER
+
+debug "Rename complete."
+
+exit 0

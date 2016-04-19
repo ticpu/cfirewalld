@@ -1,0 +1,24 @@
+#!/bin/bash
+
+source fw_common.sh
+
+# Define proper usage.
+if [ -z ${2-} ]; then
+	_fw_usage "ALIAS_NAME HOST[/MASK] [PORT] [PROTO]
+	ALIAS_NAME is to be used in fw_rule.
+	HOST is a FQDN which will be resolved for IPv4 and IPv6 by dig.
+	MASK is the network mask used only if HOST is not a DNS.
+	PORT is a TCP or UDP port.
+	PROTO is either tcp or udp, default is tcp."
+else
+	v_name="$1"; shift
+	v_host="$1"; shift
+fi
+
+if [[ $v_host =~ ^[0-9./]{7,}$ ]] || [[ $v_host =~ : ]]; then
+	fw_alias_ip "$v_name" "$v_host" "$@"
+else
+	fw_alias_dns "$v_name" "$v_host" "$@"
+fi
+
+exit 0

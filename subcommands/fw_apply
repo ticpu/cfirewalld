@@ -1,0 +1,46 @@
+#!/bin/bash
+
+source fw_common.sh
+
+# Define proper usage.
+if [ ! -z ${1-} ]; then
+	_fw_usage "
+	No arguments needed, apply a currently built firewall.
+	Confirms that the firewall works or revert."
+fi
+
+apply_config () {
+	debug "Adding new firewall ruleset to master chains."
+	ipt_foreach_chain_starting_with "${FWTMP}delegate_" modify_chain_builtin add
+
+	debug "Removing current firewall from master chains."
+	ipt_foreach_chain_starting_with "${FWR}delegate_" modify_chain_builtin remove
+}
+
+rollback_config () {
+	debug "Rolling-back configuration."
+	ipt_foreach_chain_starting_with "${FWR}delegate_" modify_chain_builtin add
+	ipt_foreach_chain_starting_with "${FWTMP}delegate_" modify_chain_builtin remove
+	_fw_abort "Rollback complete, stopping execution."
+}
+
+ask_user () {
+	debug "Asking user to confirm."
+	read -t 15 -N 1 \
+		-p "Is the firewall working correctly, you have 15 seconds to test (y/N)? " \
+		is_working
+
+	echo
+	if [[ $is_working =~ ^[Yy]$ ]]; then
+		return 0
+	else
+		return 1
+	fi
+}
+
+apply_config
+ask_user || rollback_config
+fw_commit
+fw_cleanup
+
+exit 0

@@ -1,0 +1,51 @@
+#!/bin/bash
+
+source fw_common.sh
+
+# Define proper usage.
+if [ ! -z ${1-} ]; then
+	_fw_usage "
+	No arguments needed, creates all chain and sub-chains before applying."
+fi
+
+find_chains () {
+	sed -r -n -e "s/^:(${1}[^ ]+) .*/\1/p"
+}
+
+add_chain () {
+	$IPTABLES -t $1 -A ${FWTMP}delegate_$3 -j $2+$3
+}
+
+for V in 4 6
+do
+	eval "IPTABLES=\$IP${V}TABLES"
+	eval "IPTABLES_SAVE=\$IP${V}TABLES_SAVE"
+
+	#IPTABLES_TABLES=`$IPTABLES_SAVE -t $table | sed -rne 's/^\*//p'`
+	for table in $IPTABLES_TABLES
+	do
+		for chain in $IPTABLES_CHAINS
+		do
+			# Unconditionally create the chain.
+			$IPTABLES -t $table -N ${FWTMP}delegate_${chain} 2>/dev/null || true
+			$IPTABLES -t $table -F ${FWTMP}delegate_${chain}
+		done
+
+		IFS=" +"
+		$IPTABLES_SAVE -t $table | get_chains "$FWTMP" | sort -n | while read zone user_chain
+		do
+			[ -z $user_chain ] && continue
+			user_chain=${user_chain,,}
+			eval "case $user_chain in ${IPTABLES_CHAINS// /|}) add_chain $table $zone $user_chain;; esac"
+		done
+		unset IFS
+
+		# Remove unused tables
+		for chain in $IPTABLES_CHAINS
+		do
+			$IPTABLES -t $table -X ${FWTMP}delegate_${chain} 2>/dev/null || true
+		done
+	done
+done
+
+exit 0

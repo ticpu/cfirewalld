@@ -1,0 +1,41 @@
+#!/bin/bash
+
+source fw_common.sh
+
+# Define proper usage.
+if [ ! -z ${1-} ]; then
+	_fw_usage "No argument, deletes FWTMP_ and FWD_ sets and chains."
+fi
+
+IPSET_LIST="$CACHEDIR/ipset.list"
+
+$IPSET -n list > $IPSET_LIST
+
+# Since grep might fail, we don't want cleanup to fail.
+set +o pipefail
+
+# Clean temporary iptables chains.
+ipt_flush () {
+	$IPTABLES -t $ipt_cur_table -F $ipt_cur_chain
+	if [[ $ipt_cur_chain =~ ^CFW[^_]+_delegate_ ]]; then
+		local builtin_chain=`cut -d'_' -f 3 <<< $ipt_cur_chain`
+		$IPTABLES -t $ipt_cur_table -D ${builtin_chain^^} -j $ipt_cur_chain 2>/dev/null || true
+	fi
+}
+
+ipt_remove () {
+	$IPTABLES -t $ipt_cur_table -X $ipt_cur_chain
+}
+
+ips_destroy () {
+	$IPSET destroy $ips_cur_set
+}
+
+ipt_foreach_chain_starting_with "$FWTMP" ipt_flush
+ipt_foreach_chain_starting_with "$FWTMP" ipt_remove
+ipt_foreach_chain_starting_with "$FWD" ipt_flush
+ipt_foreach_chain_starting_with "$FWD" ipt_remove
+ipset_foreach_starting_with "$LAST_PREFIX_IPSET" ips_destroy
+ipset_foreach_starting_with "$PREFIX_IPSET" ips_destroy
+
+exit 0
