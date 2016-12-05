@@ -26,8 +26,8 @@ rollback_config () {
 
 ask_user () {
 	debug "Asking user to confirm."
-	read -t 15 -N 1 \
-		-p "Is the firewall working correctly, you have 15 seconds to test (y/N)? " \
+	read -t 60 -N 1 \
+		-p "Is the firewall working correctly, you have 60 seconds to test (y/N)? " \
 		is_working
 
 	echo

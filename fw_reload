@@ -74,4 +74,8 @@ fw_apply
 
 [ -f $FAIL ] && { echo "Firewall has failed to apply." 1>&2; exit 1; }
 
+/sbin/iptables-save > /etc/network/iptables.rules
+/sbin/ip6tables-save > /etc/network/ip6tables.rules
+/sbin/ipset save > /etc/network/ipset.list
+
 exit 0
