@@ -1,0 +1,15 @@
+Source: cfirewalld
+Maintainer: Jérôme Poulin <jeromepoulin@gmail.com>
+Section: misc
+Priority: optional
+Standards-Version: 3.9.7
+Vcs-Git: git://github.com/ticpu/cfirewalld
+Build-Depends: debhelper (>= 9)
+
+Package: cfirewalld
+Architecture: any
+Depends: bash, coreutils, dnsutils, ipset, iptables, sudo, systemd,
+ ${misc:Depends}
+Description: Bash based firewall.
+ Script to automate application and rollback of iptables based firewall.
+ Allows to group rules togheter and resolve hostnames.

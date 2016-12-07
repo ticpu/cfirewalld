@@ -1,0 +1,4 @@
+#!/bin/sh
+[ -f /etc/network/ipset.list ] && /sbin/ipset restore < /etc/network/cfirewalld-ipset.list
+[ -f /etc/network/iptables.rules ] && /sbin/iptables-restore < /etc/network/cfirewalld-iptables.rules
+[ -f /etc/network/ip6tables.rules ] && /sbin/ip6tables-restore < /etc/network/cfirewalld-ip6tables.rules
