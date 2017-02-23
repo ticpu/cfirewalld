@@ -20,7 +20,7 @@ else
 		_fw_usage "You can not have . or : in your alias name."
 	fi
 
-   	if [ ! -z ${3-} ]; then
+	if [ ! -z ${3-} ]; then
 		[ ${3/*:} -gt 0 ] && [ ${3/*:} -lt 65536 ] || _fw_usage "PORT must be between 1 and 65535."
 
 		# Check for a 3 letter protocol (tcp/udp)
@@ -50,6 +50,6 @@ fw_create_ipset () {
 }
 
 fw_create_ipset || true
-$IPSET add "$v_name" "${v_network}${v_port:+,$v_port}"
+$IPSET -exist add "$v_name" "${v_network}${v_port:+,$v_port}"
 
 exit 0
