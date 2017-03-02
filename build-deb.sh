@@ -1,37 +1,40 @@
-#!/bin/bash -e
+#!/bin/bash
 
-# Set package name and version for debuild. 
-PACKAGENAME="cfirewalld"
+set -e
 
 # Set changelog username and email.
-[ -z "$DEBFULLNAME" ] && export DEBFULLNAME=`git config user.name`
-[ -z "$DEBEMAIL" ] && export DEBEMAIL=`git config user.email`
+export DEBFULLNAME=${DEBFULLNAME-`git config user.name`}
+export DEBEMAIL=${DEBEMAIL-`git config user.email`}
 
-git_describe () {
-	git describe --match "${PACKAGENAME}-*" "$@"
-}
+# Set package name for debuild. 
+PACKAGENAME="cfirewalld"
 
-TAG="`git_describe --abbrev=0`"
-SHORT_TAG="`git_describe --tags`"
-FULL_TAG="`git_describe`"
-VERSION="${TAG#${PACKAGENAME}-}"
+# Set version according to tag, if tag has commits after, add
+# the hash in version number.
 FULL_PACKAGENAME="${PACKAGENAME}"
-if [[ "$TAG" == "$SHORT_TAG" ]]; then
-	FULL_VERSION="${VERSION}-1"
+TAG_MATCH="${PACKAGENAME}-v"
+SHORT_VERSION="`git describe --match ${TAG_MATCH}* --abbrev=0`"
+SHORT_VERSION="${SHORT_VERSION#$TAG_MATCH}"
+SHORT_TAG="`git describe --match ${TAG_MATCH}* --tags`"
+SHORT_TAG="${SHORT_TAG#$TAG_MATCH}"
+if [[ "$SHORT_VERSION" == "$SHORT_TAG" ]]; then
+	VERSION="${SHORT_VERSION}-1"
 else
-	FULL_VERSION="${FULL_TAG#${PACKAGENAME}-${VERSION}-}"
-	FULL_VERSION="${VERSION}-${FULL_VERSION/-/.}"
+	VERSION="${SHORT_VERSION}-`git rev-parse HEAD | cut -c1-8`"
 fi
 
 # Set package dir for tarball.
-PACKAGE_DIR="${FULL_PACKAGENAME}-${VERSION}"
+PACKAGE_DIR="${FULL_PACKAGENAME}-${SHORT_VERSION}"
 
-git archive --prefix "$PACKAGE_DIR/" \
-	-o "${FULL_PACKAGENAME}_${VERSION}.orig.tar.gz" HEAD .
+
+
+./debian/git-archive-all.sh --prefix "$PACKAGE_DIR/" \
+	-t HEAD "${FULL_PACKAGENAME}_${SHORT_VERSION}.orig.tar"
+gzip "${FULL_PACKAGENAME}_${SHORT_VERSION}.orig.tar"
 [ -d "${PACKAGE_DIR}" ] && rm -r "${PACKAGE_DIR}"
-tar -xzf "${FULL_PACKAGENAME}_${VERSION}.orig.tar.gz"
+tar -xzf "${FULL_PACKAGENAME}_${SHORT_VERSION}.orig.tar.gz"
 cd "${PACKAGE_DIR}"
 
-CHANGES=`git tag -v ${TAG} 2>/dev/null | sed -r -n -e 's/\* (.*)\.?$/\1./p'`
-dch --create -v "${FULL_VERSION}" --package "${FULL_PACKAGENAME}" "$CHANGES"
+CHANGES=`git tag -v $TAG_MATCH$SHORT_VERSION 2>/dev/null | sed -r -n -e 's/\* (.*)\.?$/\1./p'`
+dch --create -v "${VERSION}" --package "${FULL_PACKAGENAME}" "$CHANGES"
 debuild "$@"

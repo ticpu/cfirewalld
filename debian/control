@@ -10,7 +10,7 @@ Package: cfirewalld
 Architecture: any
 Depends: bash, coreutils, dnsutils, ipset, iptables, sudo, systemd,
  ${misc:Depends}
-Recommends: conntrack conntrackd
+Recommends: conntrack, conntrackd
 Description: Bash based firewall.
  Script to automate application and rollback of iptables based firewall.
  Allows to group rules togheter and resolve hostnames.
