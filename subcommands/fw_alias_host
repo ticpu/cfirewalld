@@ -15,7 +15,7 @@ else
 	v_host="$1"; shift
 fi
 
-if [[ $v_host =~ ^[0-9./]{7,}$ ]] || [[ $v_host =~ : ]]; then
+if [[ $v_host =~ ^[0-9./]{7,}$ ]] || [[ $v_host =~ : ]] || [ "$v_host" = "any" ]; then
 	fw_alias_ip "$v_name" "$v_host" "$@"
 else
 	fw_alias_dns "$v_name" "$v_host" "$@"

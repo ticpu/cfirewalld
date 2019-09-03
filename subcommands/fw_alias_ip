@@ -44,12 +44,18 @@ fw_create_ipset () {
 
 	if [ -z $v_port ]; then
 		$IPSET create "$v_name" hash:net family $v_family counters 2>/dev/null
+	elif [ "$v_network" = "any" ]; then
+		$IPSET create "$v_name" bitmap:port range 1-65535 counters 2>/dev/null
 	else
 		$IPSET create "$v_name" hash:net,port family $v_family counters 2>/dev/null
 	fi
 }
 
 fw_create_ipset || true
-$IPSET -exist add "$v_name" "${v_network}${v_port:+,$v_port}"
+if [ "$v_network" = "any" ]; then
+	$IPSET -exist add "$v_name" "$v_port"
+else
+	$IPSET -exist add "$v_name" "${v_network}${v_port:+,$v_port}"
+fi
 
 exit 0
