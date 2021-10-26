@@ -11,6 +11,7 @@ if [ -z "${VARS_SOURCED-}" ]; then
 	export _PROG="${0##*/}"
 	export CACHEDIR=`mktemp -d /tmp/${_PROG}.XXXXXX`
 	export COMMIT_FILE="/tmp/cfw_commit_in_progress"
+	export CONNTRACK_ENABLED=1
 	export DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 	export FWD="CFWDEL_"
 	export FWR="CFW_"

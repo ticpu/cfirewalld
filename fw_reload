@@ -29,11 +29,14 @@ source subcommands/fw_vars
 _exit_cleanup () {
 	[ -d "$CACHEDIR" ] && rm -rf "$CACHEDIR"
 	[ -e "$LOG_SOCKET" ] && rm -f "$LOG_SOCKET"
-	# Restart conntrack and send all changes to other firewall.
-	systemctl start conntrackd.service || true
-	sleep 1
-	conntrackd -B
-	conntrackd -n
+	if [ $CONNTRACK_ENABLED -eq 1 ]
+	then
+		# Restart conntrack and send all changes to other firewall.
+		systemctl start conntrackd.service || true
+		sleep 1
+		conntrackd -B
+		conntrackd -n
+	fi
 }
 
 trap _exit_cleanup EXIT
@@ -44,8 +47,11 @@ tail -f "$LOG_SOCKET" 1>&2 &
 
 cd "$DIR/.."
 
-# Stopping conntrack to prevent excessive CPU load
-systemctl stop conntrackd.service || true
+if [ $CONNTRACK_ENABLED -eq 1 ]
+then
+	# Stopping conntrack to prevent excessive CPU load
+	systemctl stop conntrackd.service || true
+fi
 
 # Check if we weren't in the middle of applying the firewall.
 if [ -f $COMMIT_FILE ]; then
