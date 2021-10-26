@@ -38,3 +38,5 @@ if [ -z "${VARS_SOURCED-}" ]; then
 	export RUNDIR=/run/${_NAME}
 	export IPSET_PREFIX_FILE=$RUNDIR/ipset_prefix
 fi
+
+. /etc/cfirewalld/fw_vars

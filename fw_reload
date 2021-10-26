@@ -84,4 +84,16 @@ fw_apply
 /sbin/ip6tables-save > /etc/network/cfirewalld-ip6tables.rules
 /sbin/ipset save > /etc/network/cfirewalld-ipset.list
 
+shopt -s nullglob
+[ -d post-run.d/ ] && for F in post-run.d/*.sh
+do
+	if [ $TRACE -eq 1 ]; then
+		bash -x -E $F
+	else
+		bash -E $F
+	fi
+done
+
+# Kill the background tail process.
+kill %1 2>/dev/null
 exit 0
