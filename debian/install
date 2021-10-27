@@ -2,5 +2,5 @@ firewall.d /etc/cfirewalld/
 fw_reload /usr/share/cfirewalld/
 fw_vars /etc/cfirewalld/
 subcommands /usr/share/cfirewalld/
-debian/cfirewalld-start /etc/network/if-pre-up.d/
 debian/fw_reload /usr/sbin/
+debian/cfirewalld-start /usr/sbin/

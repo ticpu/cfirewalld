@@ -1,0 +1,11 @@
+[Unit]
+ConditionFileNotEmpty=/var/lib/cfirewalld/ipset.list
+Before=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/cfirewalld-start
+RemainAfterExit=true
+
+[Install]
+WantedBy=network.target

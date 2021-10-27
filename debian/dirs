@@ -1,2 +1,2 @@
 /etc/cfirewalld/post-run.d
-/etc/network/if-pre-up.d
+/var/lib/cfirewalld

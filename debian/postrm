@@ -1,0 +1,13 @@
+#!/bin/sh
+
+set -e
+
+case "$1" in
+	purge)
+		rm -r /var/lib/cfirewalld
+		;;
+esac
+
+#DEBHELPER#
+
+exit 0

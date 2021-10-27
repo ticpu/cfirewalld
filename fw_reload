@@ -80,9 +80,9 @@ fw_apply
 
 [ -f $FAIL ] && { echo "Firewall has failed to apply." 1>&2; exit 1; }
 
-/sbin/iptables-save > /etc/network/cfirewalld-iptables.rules
-/sbin/ip6tables-save > /etc/network/cfirewalld-ip6tables.rules
-/sbin/ipset save > /etc/network/cfirewalld-ipset.list
+/sbin/iptables-save > /var/lib/cfirewalld/iptables.rules
+/sbin/ip6tables-save > /var/lib/cfirewalld/ip6tables.rules
+/sbin/ipset save > /var/lib/cfirewalld/ipset.list
 
 shopt -s nullglob
 [ -d post-run.d/ ] && for F in post-run.d/*.sh
