@@ -1,4 +1,4 @@
 #!/bin/sh
-[ -f /var/lib/cfirewalld/ipset.list ] && /sbin/ipset restore < /var/lib/cfirewalld/ipset.list
-[ -f /var/lib/cfirewalld/iptables.rules ] && /sbin/iptables-restore < /var/lib/cfirewalld/iptables.rules
-[ -f /var/lib/cfirewalld/ip6tables.rules ] && /sbin/ip6tables-restore < /var/lib/cfirewalld/ip6tables.rules
+[ -f /var/lib/cfirewalld/ipset.list ] && ipset restore < /var/lib/cfirewalld/ipset.list
+[ -f /var/lib/cfirewalld/iptables.rules ] && iptables-restore < /var/lib/cfirewalld/iptables.rules
+[ -f /var/lib/cfirewalld/ip6tables.rules ] && ip6tables-restore < /var/lib/cfirewalld/ip6tables.rules
