@@ -113,14 +113,28 @@ From `/etc/cfirewalld/firewall.d/` on cadevrtr1:
    line by a reload. Blocks step 8: sets and rules cannot be exercised until
    resolution passes.
 8. Validate on cadevrtr1: same host, same config, flip `CFW_HELPER`, diff
-   `iptables-save` and `ipset save`.
+   `iptables-save` and `ipset save`. Done — identical.
 
-## Accepted divergence
+## Validation result
 
-Bare-FQDN rule endpoints are resolved by the helper instead of by iptables, so one
-declaration may expand into a different number of rules than before. Validation
-expects differences only in those rules, and checks each expansion against the
-addresses iptables would have produced.
+Both paths committed in turn on cadevrtr1, against the same config:
+
+- rules: 169 v4 and 142 v6 lines, identical
+- sets: 1094 lines, identical
+
+Compared after normalising the ipset version prefix, packet counters, and the
+random `initval` ipset assigns each set at creation.
+
+The divergence budgeted for bare-FQDN endpoints did not appear: resolving them
+in the helper produced the same addresses iptables produced for itself.
+
+Two defects surfaced only here, both invisible to a reload that merely
+succeeded:
+
+- rules named `CFWTMP_`-prefixed sets, but commit renames chains and versions
+  sets, so every committed rule matching an alias matched nothing
+- the probe tested every tail in `filter`, so `-j REDIRECT` was rejected for
+  both families and the SMTP redirect silently never reached the ruleset
 
 ## Found in production
 
