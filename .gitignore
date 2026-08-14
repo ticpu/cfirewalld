@@ -1,7 +1,11 @@
-firewall.d/
+# Local rules only; the shipped defaults and the test fixture are tracked.
+/firewall.d/
 /target/
 /Cargo.lock
 /scratch/
 /cfw-build
 /cfw-build.*
 *.deb
+/tests/out/
+/tests/cache/
+/tests/.vm.*

@@ -94,6 +94,11 @@ impl Sets {
         }
     }
 
+    /// A port bitmap carries no family and exists only under the bare name, so
+    /// a v6 rule referencing one finds nothing and is not emitted. The rule
+    /// would be valid — the bitmap matches either family — but the shell drops
+    /// it for want of a `_v6` set, and a reload must not start matching traffic
+    /// it did not match before.
     pub fn get(&self, alias: &str, family: Family) -> Option<&Set> {
         self.by_name.get(&Self::set_name(alias, family))
     }
@@ -164,14 +169,12 @@ pub fn build(decls: &[Decl], resolved: &Resolved) -> Result<Sets, BuildError> {
                         ),
                     });
                 };
-                // A port bitmap has no family, but rules look it up per family,
-                // so it is registered under both.
-                for family in [Family::V4, Family::V6] {
-                    let set = sets
-                        .entry_for(name, family, SetType::Port)
-                        .map_err(|had| mixed(name, origin, had, SetType::Port))?;
-                    set.entries.push(spec.clone());
-                }
+                // A port bitmap carries no family and takes no _v6 name: one
+                // set serves both, and rules of either family match it.
+                let set = sets
+                    .entry_for(name, Family::V4, SetType::Port)
+                    .map_err(|had| mixed(name, origin, had, SetType::Port))?;
+                set.entries.push(spec.clone());
             }
             Host::Literal(literal) => {
                 let family = Family::of_literal(&literal);
@@ -296,6 +299,17 @@ mod tests {
         let set = sets.get("ports", Family::V4).unwrap();
         assert_eq!(set.set_type, SetType::Port);
         assert_eq!(set.entries, ["tcp:443"]);
+    }
+
+    #[test]
+    fn a_port_bitmap_is_one_set_reached_only_from_v4() {
+        let input = rec(&["alias", "a.sh", "1", "ports", "any", "443", "tcp"]);
+        let sets = build_from(&input, &resolved(&[]));
+        // One set, named without the _v6 suffix. A v6 rule finds nothing, which
+        // is what the shell does, so no rule appears where none did before.
+        assert_eq!(sets.by_name.len(), 1);
+        assert_eq!(sets.get("ports", Family::V4).unwrap().name, "ports");
+        assert!(sets.get("ports", Family::V6).is_none());
     }
 
     #[test]

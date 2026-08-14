@@ -51,14 +51,29 @@ define stage_pkg
 	ln -s /usr/share/$(NAME)/fw_reload "$(PKG)/etc/$(NAME)/fw_reload"
 endef
 
-.PHONY: all clean binary deb deb-arm64 deb-all test
+.PHONY: all clean binary deb deb-arm64 deb-all test test-unit test-integration test-vm
 
 all: binary
 
 binary: $(BINARY)
 
-test:
+test: test-unit test-integration
+
+test-unit:
 	cargo test --release
+
+# Builds a whole firewall in a container's own network namespace, through both
+# build paths, and requires them to agree. Needs NET_ADMIN and NET_RAW: without
+# NET_RAW an `-m set` match cannot reach the ipset subsystem and every rule
+# using an alias silently fails to install.
+test-integration: $(BINARY)
+	./tests/integration.sh
+
+# The same checks against a pinned Debian image, so they run on the kernel and
+# iptables the package targets rather than the developer's. Slower: it fetches
+# an image and boots it.
+test-vm: $(BINARY)
+	./tests/vm.sh
 
 deb: $(DEB_AMD64)
 
