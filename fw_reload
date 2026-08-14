@@ -27,9 +27,13 @@ set -eu
 source subcommands/fw_vars
 
 _exit_cleanup () {
+	# Reached twice when a signal trap runs it and then EXIT fires; conntrackd
+	# must not be restarted a second time.
+	[ -n "${CLEANUP_DONE-}" ] && return 0
+	CLEANUP_DONE=1
+
 	# Before removing the socket: tail holds the fd open, so a deleted file
-	# leaves it following nothing forever. Every abort and rollback path
-	# leaves through here, which is why the kill cannot live at the end.
+	# leaves it following nothing forever.
 	if [ -n "${LOG_TAIL_PID-}" ]; then
 		kill "$LOG_TAIL_PID" 2>/dev/null || true
 		wait "$LOG_TAIL_PID" 2>/dev/null || true
@@ -46,7 +50,18 @@ _exit_cleanup () {
 	fi
 }
 
+# INT and TERM as well as EXIT: interrupting the confirmation prompt is a normal
+# way to abandon a reload, and bash runs no EXIT trap when the shell dies of an
+# uncaught signal. Re-raising after cleanup keeps the exit status honest.
+_signal_cleanup () {
+	_exit_cleanup
+	trap - EXIT "$1"
+	kill -s "$1" $$
+}
+
 trap _exit_cleanup EXIT
+trap '_signal_cleanup INT' INT
+trap '_signal_cleanup TERM' TERM
 
 # Log socket
 truncate -s 0 "$LOG_SOCKET"

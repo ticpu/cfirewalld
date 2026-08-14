@@ -131,6 +131,12 @@ trap.
 
 ## Deferred
 
+- `fw_prepare_zones` creates all five delegate chains in every table and family,
+  then deletes the unused ones: 90 iptables invocations plus six saves per
+  reload, to end up with one or two chains. It cannot know which hooks are used
+  before reading them back, but the helper does — it just built them. Now the
+  dominant per-reload cost.
+
 - Bashism cleanup of the remaining shell (`type -P` for `which`, `printf %(%T)T`
   for `date`, parameter expansion for `cut`/`sed`). Superseded for the hot path by
   the helper; still worth it for `fw_reload`-level cost.
