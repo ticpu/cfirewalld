@@ -128,11 +128,17 @@ fn main() {
         Ok(d) => d,
         Err(e) => die(&format!("parsing declarations: {e}")),
     };
-    debug(config.debug, &format!("parsed {} declarations", decls.len()));
+    debug(
+        config.debug,
+        &format!("parsed {} declarations", decls.len()),
+    );
 
     let names = resolve::names_to_resolve(&decls);
     debug(config.debug, &format!("resolving {} name(s)", names.len()));
-    let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
         Ok(r) => r,
         Err(e) => die(&format!("starting the resolver: {e}")),
     };
@@ -153,7 +159,10 @@ fn main() {
         Ok(s) => s,
         Err(e) => die(&e.message),
     };
-    debug(config.debug, &format!("built {} set(s)", sets.by_name.len()));
+    debug(
+        config.debug,
+        &format!("built {} set(s)", sets.by_name.len()),
+    );
 
     let mut prober = Prober::new();
     let built = rules::build(
@@ -172,14 +181,25 @@ fn main() {
     };
     for (family, ruleset) in &built {
         let chains: usize = ruleset.tables.values().map(|t| t.chains.len()).sum();
-        let count: usize = ruleset.tables.values().flat_map(|t| t.chains.values()).map(Vec::len).sum();
-        debug(config.debug, &format!("{family:?}: {count} rule(s) in {chains} chain(s)"));
+        let count: usize = ruleset
+            .tables
+            .values()
+            .flat_map(|t| t.chains.values())
+            .map(Vec::len)
+            .sum();
+        debug(
+            config.debug,
+            &format!("{family:?}: {count} rule(s) in {chains} chain(s)"),
+        );
     }
 
     // Everything is decided; only now does anything reach the kernel.
     let set_stream = sets::render(&sets, &config.set_prefix);
     record(&config.cachedir, "ipset.restore", &set_stream);
-    debug(config.debug, &format!("ipset restore -! ({} lines)", set_stream.lines().count()));
+    debug(
+        config.debug,
+        &format!("ipset restore -! ({} lines)", set_stream.lines().count()),
+    );
     if let Err(e) = submit("ipset", &["restore", "-!"], &set_stream) {
         die(&format!("loading sets: {e}"));
     }
@@ -191,7 +211,10 @@ fn main() {
         };
         let text = rules::render(ruleset, &config.prefix);
         record(&config.cachedir, name, &text);
-        debug(config.debug, &format!("{program} --noflush ({} lines)", text.lines().count()));
+        debug(
+            config.debug,
+            &format!("{program} --noflush ({} lines)", text.lines().count()),
+        );
         if let Err(e) = submit(program, &["--noflush"], &text) {
             die(&format!("loading rules: {e}"));
         }

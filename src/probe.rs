@@ -148,10 +148,17 @@ mod tests {
     fn family_specific_options_are_rejected_by_the_other_family() {
         let mut p = Prober::new();
 
-        let v6_only: Vec<String> = ["-p", "icmpv6", "--icmpv6-type", "echo-request", "-j", "DROP"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
+        let v6_only: Vec<String> = [
+            "-p",
+            "icmpv6",
+            "--icmpv6-type",
+            "echo-request",
+            "-j",
+            "DROP",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
         assert_eq!(p.families_for("filter", &v6_only), vec![Family::V6]);
 
         let v4_only: Vec<String> = ["-p", "icmp", "--icmp-type", "echo-request", "-j", "DROP"]
@@ -160,8 +167,14 @@ mod tests {
             .collect();
         assert_eq!(p.families_for("filter", &v4_only), vec![Family::V4]);
 
-        let both: Vec<String> = ["-p", "tcp", "-j", "ACCEPT"].iter().map(|s| s.to_string()).collect();
-        assert_eq!(p.families_for("filter", &both), vec![Family::V4, Family::V6]);
+        let both: Vec<String> = ["-p", "tcp", "-j", "ACCEPT"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(
+            p.families_for("filter", &both),
+            vec![Family::V4, Family::V6]
+        );
 
         p.cleanup();
     }

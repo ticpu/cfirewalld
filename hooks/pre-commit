@@ -1,0 +1,42 @@
+#!/bin/bash
+# Pre-commit checks. Mirrors the CI jobs that are cheap enough to run here:
+# the container integration tests are not, and run in CI.
+
+set -e
+
+staged_rs=$(git diff --cached --diff-filter=AM --name-only | grep '\.rs$' || true)
+staged_sh=$(git diff --cached --diff-filter=AM --name-only \
+	| grep -E '^(fw_reload|fw_vars|subcommands/|scripts/|tests/.*\.sh$)' || true)
+
+if [ -n "$staged_rs" ]; then
+	if echo "$staged_rs" | xargs grep -nH '#\[.*allow(dead_code).*\]'; then
+		echo "Found #[allow(dead_code)] in staged files. Refactor without it, or ask for approval." 1>&2
+		exit 1
+	fi
+
+	if ! cargo fmt -- --check; then
+		echo "Not formatted. Run 'cargo fmt'." 1>&2
+		exit 1
+	fi
+
+	if ! cargo clippy --all-targets --message-format=short -- -D warnings; then
+		exit 1
+	fi
+
+	if ! cargo test --release --message-format=short; then
+		exit 1
+	fi
+fi
+
+# A shell script that does not parse takes the firewall down at reload, and
+# nothing else in this repo would catch it before then.
+for f in $staged_sh; do
+	[ -f "$f" ] || continue
+	head -1 "$f" | grep -q '^#!.*sh' || continue
+	if ! bash -n "$f"; then
+		echo "Syntax error in $f" 1>&2
+		exit 1
+	fi
+done
+
+exit 0

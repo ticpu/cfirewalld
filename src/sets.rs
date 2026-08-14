@@ -152,7 +152,14 @@ pub fn build(decls: &[Decl], resolved: &Resolved) -> Result<Sets, BuildError> {
     let mut sets = Sets::default();
 
     for decl in decls {
-        let Decl::Alias(Alias { name, host, port, proto, origin }) = decl else {
+        let Decl::Alias(Alias {
+            name,
+            host,
+            port,
+            proto,
+            origin,
+        }) = decl
+        else {
             continue;
         };
 
@@ -164,9 +171,7 @@ pub fn build(decls: &[Decl], resolved: &Resolved) -> Result<Sets, BuildError> {
                 // match everything, which the shell has no representation for.
                 let Some(spec) = &port_field else {
                     return Err(BuildError {
-                        message: format!(
-                            "alias {name} at {origin}: host 'any' needs a port"
-                        ),
+                        message: format!("alias {name} at {origin}: host 'any' needs a port"),
                     });
                 };
                 // A port bitmap carries no family and takes no _v6 name: one
@@ -178,7 +183,11 @@ pub fn build(decls: &[Decl], resolved: &Resolved) -> Result<Sets, BuildError> {
             }
             Host::Literal(literal) => {
                 let family = Family::of_literal(&literal);
-                let set_type = if port_field.is_some() { SetType::NetPort } else { SetType::Net };
+                let set_type = if port_field.is_some() {
+                    SetType::NetPort
+                } else {
+                    SetType::Net
+                };
                 let entry = match &port_field {
                     Some(spec) => format!("{literal},{spec}"),
                     None => literal.clone(),
@@ -191,7 +200,11 @@ pub fn build(decls: &[Decl], resolved: &Resolved) -> Result<Sets, BuildError> {
             Host::Name(dns) => {
                 for addr in resolved.get(&dns) {
                     let family = Family::of(addr);
-                    let set_type = if port_field.is_some() { SetType::NetPort } else { SetType::Net };
+                    let set_type = if port_field.is_some() {
+                        SetType::NetPort
+                    } else {
+                        SetType::Net
+                    };
                     let entry = match &port_field {
                         Some(spec) => format!("{addr},{spec}"),
                         None => addr.to_string(),
@@ -214,7 +227,11 @@ pub fn render(sets: &Sets, prefix: &str) -> String {
 
     for set in sets.by_name.values() {
         let name = format!("{prefix}{}", set.name);
-        let _ = writeln!(out, "create {name} {}", set.set_type.create_args(set.family));
+        let _ = writeln!(
+            out,
+            "create {name} {}",
+            set.set_type.create_args(set.family)
+        );
         for entry in &set.entries {
             let _ = writeln!(out, "add {name} {entry}");
         }
@@ -254,8 +271,17 @@ mod tests {
         let input = rec(&["alias", "a.sh", "1", "plain", "10.0.0.0/8"])
             + &rec(&["alias", "a.sh", "2", "ported", "10.0.0.0/8", "53", "udp"]);
         let sets = build_from(&input, &resolved(&[]));
-        assert_eq!(sets.get("plain", Family::V4).unwrap().set_type.dimensions(), 1);
-        assert_eq!(sets.get("ported", Family::V4).unwrap().set_type.dimensions(), 2);
+        assert_eq!(
+            sets.get("plain", Family::V4).unwrap().set_type.dimensions(),
+            1
+        );
+        assert_eq!(
+            sets.get("ported", Family::V4)
+                .unwrap()
+                .set_type
+                .dimensions(),
+            2
+        );
     }
 
     #[test]
@@ -263,24 +289,47 @@ mod tests {
         let input = rec(&["alias", "a.sh", "1", "net", "10.10.255.32/28"])
             + &rec(&["alias", "a.sh", "2", "net", "fd51:2050:2220:502::/64"]);
         let sets = build_from(&input, &resolved(&[]));
-        assert_eq!(sets.get("net", Family::V4).unwrap().entries, ["10.10.255.32/28"]);
-        assert_eq!(sets.get("net", Family::V6).unwrap().entries, ["fd51:2050:2220:502::/64"]);
+        assert_eq!(
+            sets.get("net", Family::V4).unwrap().entries,
+            ["10.10.255.32/28"]
+        );
+        assert_eq!(
+            sets.get("net", Family::V6).unwrap().entries,
+            ["fd51:2050:2220:502::/64"]
+        );
         assert_eq!(sets.get("net", Family::V6).unwrap().name, "net_v6");
     }
 
     #[test]
     fn a_name_fans_out_into_both_families() {
-        let input = rec(&["alias", "a.sh", "1", "svc", "host.example.test", "53", "udp"]);
+        let input = rec(&[
+            "alias",
+            "a.sh",
+            "1",
+            "svc",
+            "host.example.test",
+            "53",
+            "udp",
+        ]);
         let r = resolved(&[("host.example.test", &["192.0.2.1", "2001:db8::1"])]);
         let sets = build_from(&input, &r);
-        assert_eq!(sets.get("svc", Family::V4).unwrap().entries, ["192.0.2.1,udp:53"]);
-        assert_eq!(sets.get("svc", Family::V6).unwrap().entries, ["2001:db8::1,udp:53"]);
+        assert_eq!(
+            sets.get("svc", Family::V4).unwrap().entries,
+            ["192.0.2.1,udp:53"]
+        );
+        assert_eq!(
+            sets.get("svc", Family::V6).unwrap().entries,
+            ["2001:db8::1,udp:53"]
+        );
     }
 
     #[test]
     fn multiple_addresses_all_become_entries() {
         let input = rec(&["alias", "a.sh", "1", "pool", "pool.example.test"]);
-        let r = resolved(&[("pool.example.test", &["192.0.2.1", "192.0.2.2", "192.0.2.3"])]);
+        let r = resolved(&[(
+            "pool.example.test",
+            &["192.0.2.1", "192.0.2.2", "192.0.2.3"],
+        )]);
         let sets = build_from(&input, &r);
         assert_eq!(sets.get("pool", Family::V4).unwrap().entries.len(), 3);
     }
@@ -289,7 +338,10 @@ mod tests {
     fn port_defaults_to_bare_when_no_proto() {
         let input = rec(&["alias", "a.sh", "1", "svc", "10.0.0.1", "8200"]);
         let sets = build_from(&input, &resolved(&[]));
-        assert_eq!(sets.get("svc", Family::V4).unwrap().entries, ["10.0.0.1,8200"]);
+        assert_eq!(
+            sets.get("svc", Family::V4).unwrap().entries,
+            ["10.0.0.1,8200"]
+        );
     }
 
     #[test]
@@ -338,7 +390,11 @@ mod tests {
         let input = rec(&["alias", "a.sh", "1", "svc", "10.0.0.1", "53", "udp"])
             + &rec(&["alias", "a.sh", "2", "svc", "10.0.0.2"]);
         let e = build(&parse(&input).unwrap(), &resolved(&[])).unwrap_err();
-        assert!(e.message.contains("all ported or all unported"), "{}", e.message);
+        assert!(
+            e.message.contains("all ported or all unported"),
+            "{}",
+            e.message
+        );
     }
 
     #[test]

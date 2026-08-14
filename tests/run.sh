@@ -94,6 +94,14 @@ capture "$WORK/helper"
 	&& pass "helper path committed" \
 	|| fail "helper path did not commit (rc=$rc, version $before -> $(ipset_version))"
 
+echo "=== both paths built something ==="
+for p in bash helper; do
+	n=$(grep -c '^create ' "$WORK/$p/sets.list" || true)
+	[ "$n" -gt 0 ] \
+		&& pass "$p path created $n set(s)" \
+		|| fail "$p path created no sets at all; the fixture defines several"
+done
+
 echo "=== the two paths agree ==="
 for f in v4.rules v6.rules sets.list; do
 	if diff -u "$WORK/bash/$f" "$WORK/helper/$f" > "$WORK/$f.diff"; then

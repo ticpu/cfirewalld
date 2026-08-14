@@ -73,6 +73,12 @@ jobs:
         cargo build --release
         install -m 755 target/release/cfw-build cfw-build
 
+    # A container cannot load these, and the kernel only autoloads a set type
+    # on first use by a process allowed to. Without them the run fails late and
+    # obscurely: the BASH path builds no sets at all, and the helper aborts.
+    - name: Load the ipset modules the fixture needs
+      run: sudo modprobe ip_set ip_set_hash_net ip_set_hash_netport ip_set_bitmap_port xt_set
+
     # NET_ADMIN drives iptables and ipset; without NET_RAW an `-m set` match
     # cannot reach the ipset subsystem and every rule using an alias fails to
     # install. Whether a runner grants them is what this job answers.
