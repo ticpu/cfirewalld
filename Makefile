@@ -5,7 +5,10 @@ CARGO_VERSION := $(shell grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
 VERSION := v$(CARGO_VERSION)
 GIT_DIRTY := $(shell git diff-index --quiet HEAD -- . 2>/dev/null || echo dirty)
 GIT_TAG := $(shell git describe --exact-match --tags 2>/dev/null | grep -E '^cfirewalld-v')
-GIT_VERSION := $(shell git log --oneline . | wc -l)-$(shell git rev-parse --short HEAD)
+# Commit count then build time, both numeric, before the hash: a rebase leaves
+# the count unchanged and moves the hash, and dpkg would otherwise let the new
+# build compare older than the one it replaces.
+GIT_VERSION := $(shell git log --oneline . | wc -l).$(shell date -u +%Y%m%d%H%M%S)-$(shell git rev-parse --short HEAD)
 BASE_VERSION := $(if $(GIT_DIRTY),$(VERSION)+$(GIT_VERSION),$(if $(GIT_TAG),$(VERSION),$(VERSION)+$(GIT_VERSION)))
 DEB_VERSION := $(patsubst v%,%,$(BASE_VERSION))
 DEB_AMD64 := $(NAME)_$(DEB_VERSION)_amd64.deb

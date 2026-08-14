@@ -8,10 +8,6 @@ if [ ! -z ${1-} ]; then
 	No arguments needed, creates all chain and sub-chains before applying."
 fi
 
-find_chains () {
-	sed -r -n -e "s/^:(${1}[^ ]+) .*/\1/p"
-}
-
 add_chain () {
 	$IPTABLES -t $1 -A ${FWTMP}delegate_$3 -j $2+$3
 }
@@ -21,30 +17,37 @@ do
 	eval "IPTABLES=\$IP${V}TABLES"
 	eval "IPTABLES_SAVE=\$IP${V}TABLES_SAVE"
 
-	#IPTABLES_TABLES=`$IPTABLES_SAVE -t $table | sed -rne 's/^\*//p'`
 	for table in $IPTABLES_TABLES
 	do
-		for chain in $IPTABLES_CHAINS
+		# Read the built chains before creating anything: a table usually has
+		# one or two hooks in use, and creating all of them to delete the rest
+		# costs three invocations per hook per table per family.
+		mapfile -t built < <($IPTABLES_SAVE -t $table | get_chains "$FWTMP" | sort -n)
+
+		declare -A wanted=()
+		for entry in "${built[@]}"
 		do
-			# Unconditionally create the chain.
-			$IPTABLES -t $table -N ${FWTMP}delegate_${chain} 2>/dev/null || true
-			$IPTABLES -t $table -F ${FWTMP}delegate_${chain}
+			[ -z "$entry" ] && continue
+			# A built chain is ZONE+HOOK; delegate_ chains are ours, not zones.
+			[[ $entry == ${FWTMP}delegate_* ]] && continue
+			hook="${entry##*+}"
+			hook="${hook,,}"
+			case " $IPTABLES_CHAINS " in
+				*" $hook "*) wanted[$hook]+="${entry} ";;
+			esac
 		done
 
-		IFS=" +"
-		$IPTABLES_SAVE -t $table | get_chains "$FWTMP" | sort -n | while read zone user_chain
+		for hook in "${!wanted[@]}"
 		do
-			[ -z $user_chain ] && continue
-			user_chain=${user_chain,,}
-			eval "case $user_chain in ${IPTABLES_CHAINS// /|}) add_chain $table $zone $user_chain;; esac"
+			$IPTABLES -t $table -N ${FWTMP}delegate_${hook} 2>/dev/null || true
+			$IPTABLES -t $table -F ${FWTMP}delegate_${hook}
+			for entry in ${wanted[$hook]}
+			do
+				$IPTABLES -t $table -A ${FWTMP}delegate_${hook} -j "$entry"
+			done
 		done
-		unset IFS
 
-		# Remove unused tables
-		for chain in $IPTABLES_CHAINS
-		do
-			$IPTABLES -t $table -X ${FWTMP}delegate_${chain} 2>/dev/null || true
-		done
+		unset wanted
 	done
 done
 

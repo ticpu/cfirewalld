@@ -12,7 +12,7 @@ if [ -z "${VARS_SOURCED-}" ]; then
 	export CACHEDIR=`mktemp -d /tmp/${_PROG}.XXXXXX`
 	export COMMIT_FILE="/tmp/cfw_commit_in_progress"
 	export CONNTRACK_ENABLED=1
-	export DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+	export DIR="$( cd "${BASH_SOURCE[0]%/*}" && pwd )"
 	export FWD="CFWDEL_"
 	export FWR="CFW_"
 	export FWTMP="CFWTMP_"
@@ -25,14 +25,14 @@ if [ -z "${VARS_SOURCED-}" ]; then
 	export FAIL="$CACHEDIR/failed"
 	export PATH=$DIR:$PATH
 
-	# Programs
-	export SUDO="`which sudo`"
-	export DIG="_run `which dig`"
-	export IPSET="_run `which ipset`"
-	export IP4TABLES="_run `which iptables`"
-	export IP6TABLES="_run `which ip6tables`"
-	export IP4TABLES_SAVE="_run `which iptables-save`"
-	export IP6TABLES_SAVE="_run `which ip6tables-save`"
+	# Programs. type -P is a builtin; which is not.
+	export SUDO="$(type -P sudo)"
+	export DIG="_run $(type -P dig)"
+	export IPSET="_run $(type -P ipset)"
+	export IP4TABLES="_run $(type -P iptables)"
+	export IP6TABLES="_run $(type -P ip6tables)"
+	export IP4TABLES_SAVE="_run $(type -P iptables-save)"
+	export IP6TABLES_SAVE="_run $(type -P ip6tables-save)"
 
 	# Runtime
 	export RUNDIR=/run/${_NAME}

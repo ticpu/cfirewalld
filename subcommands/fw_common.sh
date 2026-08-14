@@ -5,8 +5,10 @@ source fw_vars
 [ $TRACE -eq 1 ] && set -x
 
 # Date and echo to stderr combined.
+# printf's %()T is a builtin: this runs once per executed command, and date
+# forked as many times as the firewall has rules.
 decho () {
-	echo -e "[`date '+%b %e %T'`] ${_PROG} $@" 1>>$LOG_SOCKET
+	printf '[%(%b %e %T)T] %s %b\n' -1 "${_PROG}" "$*" 1>>$LOG_SOCKET
 }
 
 # Print text depending on whetever DEBUG is set.
@@ -159,8 +161,8 @@ modify_chain_builtin () {
 	esac
 	shift
 
-	# Define what chain we need to modify.
-	local builtin_chain=`cut -d'_' -f3 <<< $chain`
+	# Define what chain we need to modify: CFW*_delegate_HOOK.
+	local builtin_chain="${chain##*_}"
 	builtin_chain=${builtin_chain^^}
 
 	# Remove (and add) sub-chains.
