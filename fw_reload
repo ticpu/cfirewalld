@@ -119,10 +119,13 @@ shopt -s nullglob
 if [ -d post-run.d/ ]; then
 	for F in post-run.d/*.sh
 	do
+		# The firewall is applied and committed by this point. A post-run
+		# script that declines its own prompt, or fails outright, must not
+		# make the reload report failure or skip the scripts after it.
 		if [ $TRACE -eq 1 ]; then
-			bash -x -E $F
+			bash -x -E $F || echo "post-run $F exited $?" 1>&2
 		else
-			bash -E $F
+			bash -E $F || echo "post-run $F exited $?" 1>&2
 		fi
 	done
 fi
