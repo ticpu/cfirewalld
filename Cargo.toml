@@ -8,6 +8,9 @@ description = "Build phase for cfirewalld: resolves aliases and emits ipset/ipta
 repository = "https://github.com/ticpu/cfirewalld"
 
 [dependencies]
+futures = { version = "0.3.34", default-features = false, features = ["std"] }
+hickory-resolver = { version = "0.26.1", default-features = false, features = ["system-config", "tokio"] }
+tokio = { version = "1.53.1", features = ["rt", "macros"] }
 
 [profile.release]
 strip = true
