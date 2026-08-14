@@ -62,11 +62,15 @@ pub fn names_to_resolve(decls: &[Decl]) -> BTreeMap<String, Vec<Usage>> {
         // An alias's own host is resolved even where it shares a name with
         // another alias: that is the value being defined, not a reference.
         let uses: [(&str, String, &Origin); 2] = match d {
-            Decl::Alias(Alias { name, host, origin, .. }) => [
+            Decl::Alias(Alias {
+                name, host, origin, ..
+            }) => [
                 (host.as_str(), format!("alias {name}"), origin),
                 ("", String::new(), origin),
             ],
-            Decl::Rule(Rule { src, dst, origin, .. }) => [
+            Decl::Rule(Rule {
+                src, dst, origin, ..
+            }) => [
                 (src.as_str(), "rule source".to_string(), origin),
                 (dst.as_str(), "rule destination".to_string(), origin),
             ],
@@ -111,9 +115,7 @@ async fn lookup(resolver: &TokioResolver, name: &str) -> Result<Vec<IpAddr>, Net
 
 /// Resolve every name concurrently. Returns all failures rather than the first,
 /// so one run reports every broken name instead of one per re-run.
-pub async fn resolve_all(
-    names: &BTreeMap<String, Vec<Usage>>,
-) -> Result<Resolved, Vec<String>> {
+pub async fn resolve_all(names: &BTreeMap<String, Vec<Usage>>) -> Result<Resolved, Vec<String>> {
     // Reads /etc/resolv.conf, so nameservers, timeout and attempts match dig's.
     let resolver = match Resolver::builder_tokio().and_then(|b| b.build()) {
         Ok(resolver) => resolver,
@@ -179,8 +181,14 @@ mod tests {
     fn classifies_hosts_like_the_shell_does() {
         assert_eq!(classify("any"), Host::Any);
         assert_eq!(classify("ANY"), Host::Any);
-        assert_eq!(classify("10.10.4.0/24"), Host::Literal("10.10.4.0/24".into()));
-        assert_eq!(classify("24.226.190.130"), Host::Literal("24.226.190.130".into()));
+        assert_eq!(
+            classify("10.10.4.0/24"),
+            Host::Literal("10.10.4.0/24".into())
+        );
+        assert_eq!(
+            classify("24.226.190.130"),
+            Host::Literal("24.226.190.130".into())
+        );
         assert_eq!(
             classify("fd51:2050:2220:4::/64"),
             Host::Literal("fd51:2050:2220:4::/64".into())
@@ -202,9 +210,26 @@ mod tests {
 
     #[test]
     fn collects_names_from_aliases_and_rule_endpoints() {
-        let input = rec(&["alias", "a.sh", "1", "svc", "host.example.test", "53", "udp"])
-            + &rec(&["alias", "a.sh", "2", "net", "10.0.0.0/8"])
-            + &rec(&["rule", "a.sh", "3", "filter", "forward", "other.example.test", "any", "-j", "ACCEPT"]);
+        let input = rec(&[
+            "alias",
+            "a.sh",
+            "1",
+            "svc",
+            "host.example.test",
+            "53",
+            "udp",
+        ]) + &rec(&["alias", "a.sh", "2", "net", "10.0.0.0/8"])
+            + &rec(&[
+                "rule",
+                "a.sh",
+                "3",
+                "filter",
+                "forward",
+                "other.example.test",
+                "any",
+                "-j",
+                "ACCEPT",
+            ]);
         let names = names_to_resolve(&parse(&input).unwrap());
         assert_eq!(names.len(), 2);
         assert!(names.contains_key("host.example.test"));
@@ -214,7 +239,9 @@ mod tests {
     #[test]
     fn an_alias_used_as_an_endpoint_is_not_resolved() {
         let input = rec(&["alias", "a.sh", "1", "cc_dev", "10.0.0.0/8"])
-            + &rec(&["rule", "10_x.sh", "2", "filter", "forward", "cc_dev", "any", "-j", "ACCEPT"]);
+            + &rec(&[
+                "rule", "10_x.sh", "2", "filter", "forward", "cc_dev", "any", "-j", "ACCEPT",
+            ]);
         let names = names_to_resolve(&parse(&input).unwrap());
         assert!(names.is_empty(), "{names:?}");
     }
@@ -222,7 +249,9 @@ mod tests {
     #[test]
     fn an_alias_defined_only_by_dns_still_resolves_its_host() {
         let input = rec(&["alias", "a.sh", "1", "cadevk8s", "node1.example.test"])
-            + &rec(&["rule", "10_x.sh", "2", "filter", "forward", "cadevk8s", "any", "-j", "ACCEPT"]);
+            + &rec(&[
+                "rule", "10_x.sh", "2", "filter", "forward", "cadevk8s", "any", "-j", "ACCEPT",
+            ]);
         let names = names_to_resolve(&parse(&input).unwrap());
         assert_eq!(names.len(), 1);
         assert!(names.contains_key("node1.example.test"));
@@ -231,7 +260,17 @@ mod tests {
     #[test]
     fn a_hostname_endpoint_that_is_not_an_alias_still_resolves() {
         let input = rec(&["alias", "a.sh", "1", "cc_dev", "10.0.0.0/8"])
-            + &rec(&["rule", "10_x.sh", "2", "filter", "forward", "host.example.test", "cc_dev", "-j", "ACCEPT"]);
+            + &rec(&[
+                "rule",
+                "10_x.sh",
+                "2",
+                "filter",
+                "forward",
+                "host.example.test",
+                "cc_dev",
+                "-j",
+                "ACCEPT",
+            ]);
         let names = names_to_resolve(&parse(&input).unwrap());
         assert_eq!(names.len(), 1);
         assert!(names.contains_key("host.example.test"));

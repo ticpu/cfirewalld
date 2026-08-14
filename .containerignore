@@ -1,0 +1,7 @@
+# The build needs Cargo.toml, Cargo.lock when one exists, and src/. Everything
+# else is either large (target/, the cached VM image) or irrelevant to it.
+*
+!Cargo.toml
+!Cargo.lock
+!src
+!src/**

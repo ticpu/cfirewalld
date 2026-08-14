@@ -67,10 +67,14 @@ fn parse_args() -> Config {
 }
 
 /// Feed text to a command's stdin and wait for it.
+///
+/// The submitting program names the offending line — an exit status alone
+/// leaves the reader with a rejected ruleset and no idea which rule did it.
 fn submit(program: &str, args: &[&str], input: &str) -> Result<(), String> {
     let mut child = Command::new(program)
         .args(args)
         .stdin(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("running {program}: {e}"))?;
 
@@ -81,15 +85,29 @@ fn submit(program: &str, args: &[&str], input: &str) -> Result<(), String> {
         .write_all(input.as_bytes())
         .map_err(|e| format!("writing to {program}: {e}"))?;
 
-    let status = child
-        .wait()
+    let out = child
+        .wait_with_output()
         .map_err(|e| format!("waiting for {program}: {e}"))?;
 
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("{program} exited with {status}"))
+    if out.status.success() {
+        return Ok(());
     }
+
+    let complaint = String::from_utf8_lossy(&out.stderr);
+    let complaint = complaint.trim();
+    // The reported line number indexes the stream just submitted, so quote it.
+    let offending = complaint
+        .split_once("Error occurred at line: ")
+        .and_then(|(_, rest)| rest.split_whitespace().next())
+        .and_then(|n| n.parse::<usize>().ok())
+        .and_then(|n| input.lines().nth(n - 1))
+        .map(|line| format!("\n  line: {line}"))
+        .unwrap_or_default();
+
+    Err(format!(
+        "{program} exited with {}: {complaint}{offending}",
+        out.status
+    ))
 }
 
 /// Keep what was submitted, so a failed run can be read back.
@@ -128,11 +146,17 @@ fn main() {
         Ok(d) => d,
         Err(e) => die(&format!("parsing declarations: {e}")),
     };
-    debug(config.debug, &format!("parsed {} declarations", decls.len()));
+    debug(
+        config.debug,
+        &format!("parsed {} declarations", decls.len()),
+    );
 
     let names = resolve::names_to_resolve(&decls);
     debug(config.debug, &format!("resolving {} name(s)", names.len()));
-    let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
         Ok(r) => r,
         Err(e) => die(&format!("starting the resolver: {e}")),
     };
@@ -149,11 +173,14 @@ fn main() {
         }
     };
 
-    let sets = match sets::build(&decls, &resolved) {
+    let sets = match sets::build(&decls, &resolved, &config.set_prefix) {
         Ok(s) => s,
         Err(e) => die(&e.message),
     };
-    debug(config.debug, &format!("built {} set(s)", sets.by_name.len()));
+    debug(
+        config.debug,
+        &format!("built {} set(s)", sets.by_name.len()),
+    );
 
     let mut prober = Prober::new();
     let built = rules::build(
@@ -172,14 +199,25 @@ fn main() {
     };
     for (family, ruleset) in &built {
         let chains: usize = ruleset.tables.values().map(|t| t.chains.len()).sum();
-        let count: usize = ruleset.tables.values().flat_map(|t| t.chains.values()).map(Vec::len).sum();
-        debug(config.debug, &format!("{family:?}: {count} rule(s) in {chains} chain(s)"));
+        let count: usize = ruleset
+            .tables
+            .values()
+            .flat_map(|t| t.chains.values())
+            .map(Vec::len)
+            .sum();
+        debug(
+            config.debug,
+            &format!("{family:?}: {count} rule(s) in {chains} chain(s)"),
+        );
     }
 
     // Everything is decided; only now does anything reach the kernel.
     let set_stream = sets::render(&sets, &config.set_prefix);
     record(&config.cachedir, "ipset.restore", &set_stream);
-    debug(config.debug, &format!("ipset restore -! ({} lines)", set_stream.lines().count()));
+    debug(
+        config.debug,
+        &format!("ipset restore -! ({} lines)", set_stream.lines().count()),
+    );
     if let Err(e) = submit("ipset", &["restore", "-!"], &set_stream) {
         die(&format!("loading sets: {e}"));
     }
@@ -191,7 +229,10 @@ fn main() {
         };
         let text = rules::render(ruleset, &config.prefix);
         record(&config.cachedir, name, &text);
-        debug(config.debug, &format!("{program} --noflush ({} lines)", text.lines().count()));
+        debug(
+            config.debug,
+            &format!("{program} --noflush ({} lines)", text.lines().count()),
+        );
         if let Err(e) = submit(program, &["--noflush"], &text) {
             die(&format!("loading rules: {e}"));
         }

@@ -80,9 +80,12 @@ mkdir -p "$WORK/bash"
 before=$(ipset_version)
 rc=$(CFW_HELPER=0 reload "$WORK/bash/reload.log")
 capture "$WORK/bash"
-[ "$rc" = 0 ] && [ "$(ipset_version)" != "$before" ] \
-	&& pass "bash path committed" \
-	|| fail "bash path did not commit (rc=$rc, version $before -> $(ipset_version))"
+if [ "$rc" = 0 ] && [ "$(ipset_version)" != "$before" ]; then
+	pass "bash path committed"
+else
+	fail "bash path did not commit (rc=$rc, version $before -> $(ipset_version))"
+	sed 's/^/    | /' "$WORK/bash/reload.log" 1>&2
+fi
 
 echo "=== helper build path ==="
 reset_state
@@ -90,9 +93,22 @@ mkdir -p "$WORK/helper"
 before=$(ipset_version)
 rc=$(reload "$WORK/helper/reload.log")
 capture "$WORK/helper"
-[ "$rc" = 0 ] && [ "$(ipset_version)" != "$before" ] \
-	&& pass "helper path committed" \
-	|| fail "helper path did not commit (rc=$rc, version $before -> $(ipset_version))"
+if [ "$rc" = 0 ] && [ "$(ipset_version)" != "$before" ]; then
+	pass "helper path committed"
+else
+	fail "helper path did not commit (rc=$rc, version $before -> $(ipset_version))"
+	# What the run said is the only thing that explains it, and a CI log is
+	# all anyone will have.
+	sed 's/^/    | /' "$WORK/helper/reload.log" 1>&2
+fi
+
+echo "=== both paths built something ==="
+for p in bash helper; do
+	n=$(grep -c '^create ' "$WORK/$p/sets.list" || true)
+	[ "$n" -gt 0 ] \
+		&& pass "$p path created $n set(s)" \
+		|| fail "$p path created no sets at all; the fixture defines several"
+done
 
 echo "=== the two paths agree ==="
 for f in v4.rules v6.rules sets.list; do

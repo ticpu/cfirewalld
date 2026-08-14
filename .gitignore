@@ -9,3 +9,4 @@
 /tests/out/
 /tests/cache/
 /tests/.vm.*
+/.build-ctx.*

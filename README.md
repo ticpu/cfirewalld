@@ -1,5 +1,7 @@
 # cfirewalld
 
+[![CI](https://github.com/ticpu/cfirewalld/actions/workflows/ci.yml/badge.svg)](https://github.com/ticpu/cfirewalld/actions/workflows/ci.yml)
+
 This BASH based firewall was invented with 3 main things in mind.
 * Be able to resolve DNS correctly and, in the future, automatically update
   those entry for internal DNS servers like pfSense.
@@ -29,6 +31,21 @@ compiled against bullseye and runs on Debian 11 and Ubuntu 20.04 or newer.
 
 Where the helper is missing, or when `CFW_HELPER=0` is set in `fw_vars`,
 `fw_reload` falls back to the BASH implementation, which stays supported.
+
+## Development
+
+`make deb` builds the package, `make test` runs the unit tests and the
+container integration tests. `make test-vm` runs the same integration checks
+against a pinned Debian image instead of a container, which needs qemu and
+downloads the image once.
+
+The integration tests build a whole firewall through both build paths and
+require them to agree. They need `ip_set`, `ip_set_hash_net`,
+`ip_set_hash_netport`, `ip_set_bitmap_port` and `xt_set` loaded, since a
+container cannot load a module.
+
+`./hooks/install.sh` installs a pre-commit hook running fmt, clippy, the unit
+tests and a syntax check over the shell scripts.
 
 ## TODO
 - [x] Basic functionnality.

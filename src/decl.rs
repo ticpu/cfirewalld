@@ -69,13 +69,21 @@ fn parse_record(fields: &[&str], record: u64) -> Result<Decl, ParseError> {
 
     let (kind, file, line, rest) = match fields {
         [kind, file, line, rest @ ..] => (*kind, *file, *line, rest),
-        _ => return Err(err(format!("expected at least 3 fields, got {}", fields.len()))),
+        _ => {
+            return Err(err(format!(
+                "expected at least 3 fields, got {}",
+                fields.len()
+            )))
+        }
     };
 
     let line: u32 = line
         .parse()
         .map_err(|_| err(format!("line number is not a number: {line:?}")))?;
-    let origin = Origin { file: file.to_string(), line };
+    let origin = Origin {
+        file: file.to_string(),
+        line,
+    };
 
     match kind {
         "alias" => {
@@ -108,7 +116,12 @@ fn parse_record(fields: &[&str], record: u64) -> Result<Decl, ParseError> {
                 [table, chain, src, dst, tail @ ..] => (*table, *chain, *src, *dst, tail),
                 _ => return Err(err("rule needs TABLE CHAIN SOURCE DESTINATION".into())),
             };
-            for (label, v) in [("table", table), ("chain", chain), ("source", src), ("destination", dst)] {
+            for (label, v) in [
+                ("table", table),
+                ("chain", chain),
+                ("source", src),
+                ("destination", dst),
+            ] {
                 if v.is_empty() {
                     return Err(err(format!("rule {label} is empty")));
                 }
@@ -149,8 +162,18 @@ mod tests {
 
     #[test]
     fn alias_with_port_and_proto() {
-        let input = rec(&["alias", "15_cauca.sh", "5", "cc_services", "casrvdns1.ad.cauca.ca", "53", "UDP"]);
-        let Decl::Alias(a) = &parse(&input).unwrap()[0] else { panic!("expected alias") };
+        let input = rec(&[
+            "alias",
+            "15_cauca.sh",
+            "5",
+            "cc_services",
+            "casrvdns1.ad.cauca.ca",
+            "53",
+            "UDP",
+        ]);
+        let Decl::Alias(a) = &parse(&input).unwrap()[0] else {
+            panic!("expected alias")
+        };
         assert_eq!(a.name, "cc_services");
         assert_eq!(a.host, "casrvdns1.ad.cauca.ca");
         assert_eq!(a.port.as_deref(), Some("53"));
@@ -160,8 +183,16 @@ mod tests {
 
     #[test]
     fn alias_without_port() {
-        let input = rec(&["alias", "15_cauca.sh", "51", "cc_ping", "casrvvrrpa.ad.cauca.ca"]);
-        let Decl::Alias(a) = &parse(&input).unwrap()[0] else { panic!("expected alias") };
+        let input = rec(&[
+            "alias",
+            "15_cauca.sh",
+            "51",
+            "cc_ping",
+            "casrvvrrpa.ad.cauca.ca",
+        ]);
+        let Decl::Alias(a) = &parse(&input).unwrap()[0] else {
+            panic!("expected alias")
+        };
         assert_eq!(a.port, None);
         assert_eq!(a.proto, None);
     }
@@ -169,7 +200,13 @@ mod tests {
     #[test]
     fn alias_takes_v4_and_v6_under_one_name() {
         let input = rec(&["alias", "15_cauca.sh", "56", "cc_omd", "10.10.255.32/28"])
-            + &rec(&["alias", "15_cauca.sh", "57", "cc_omd", "fd51:2050:2220:502::/64"]);
+            + &rec(&[
+                "alias",
+                "15_cauca.sh",
+                "57",
+                "cc_omd",
+                "fd51:2050:2220:502::/64",
+            ]);
         let decls = parse(&input).unwrap();
         assert_eq!(decls.len(), 2);
     }
@@ -183,10 +220,25 @@ mod tests {
     #[test]
     fn rule_tail_keeps_spaces_and_quotes() {
         let input = rec(&[
-            "rule", "12_drops.sh", "10", "filter", "+log_drop", "any", "any",
-            "-m", "limit", "--limit", "1/sec", "-j", "LOG", "--log-prefix", "LD: ",
+            "rule",
+            "12_drops.sh",
+            "10",
+            "filter",
+            "+log_drop",
+            "any",
+            "any",
+            "-m",
+            "limit",
+            "--limit",
+            "1/sec",
+            "-j",
+            "LOG",
+            "--log-prefix",
+            "LD: ",
         ]);
-        let Decl::Rule(r) = &parse(&input).unwrap()[0] else { panic!("expected rule") };
+        let Decl::Rule(r) = &parse(&input).unwrap()[0] else {
+            panic!("expected rule")
+        };
         assert_eq!(r.chain, "+log_drop");
         assert_eq!(r.tail.last().unwrap(), "LD: ");
     }
@@ -194,25 +246,47 @@ mod tests {
     #[test]
     fn rule_tail_keeps_hash_and_service_names() {
         let input = rec(&[
-            "rule", "30_cadev.sh", "116", "filter", "forward", "cc_dev_srv", "any",
-            "-p", "tcp", "--syn", "--dport", "whois", "-m", "comment", "--comment", "a # b",
+            "rule",
+            "30_cadev.sh",
+            "116",
+            "filter",
+            "forward",
+            "cc_dev_srv",
+            "any",
+            "-p",
+            "tcp",
+            "--syn",
+            "--dport",
+            "whois",
+            "-m",
+            "comment",
+            "--comment",
+            "a # b",
         ]);
-        let Decl::Rule(r) = &parse(&input).unwrap()[0] else { panic!("expected rule") };
+        let Decl::Rule(r) = &parse(&input).unwrap()[0] else {
+            panic!("expected rule")
+        };
         assert_eq!(r.tail[4], "whois");
         assert_eq!(r.tail.last().unwrap(), "a # b");
     }
 
     #[test]
     fn chain_is_lowercased_but_plus_kept() {
-        let input = rec(&["rule", "f.sh", "1", "filter", "FORWARD", "any", "any", "-j", "ACCEPT"]);
-        let Decl::Rule(r) = &parse(&input).unwrap()[0] else { panic!("expected rule") };
+        let input = rec(&[
+            "rule", "f.sh", "1", "filter", "FORWARD", "any", "any", "-j", "ACCEPT",
+        ]);
+        let Decl::Rule(r) = &parse(&input).unwrap()[0] else {
+            panic!("expected rule")
+        };
         assert_eq!(r.chain, "forward");
     }
 
     #[test]
     fn rule_with_empty_tail_parses() {
         let input = rec(&["rule", "f.sh", "1", "filter", "forward", "any", "any"]);
-        let Decl::Rule(r) = &parse(&input).unwrap()[0] else { panic!("expected rule") };
+        let Decl::Rule(r) = &parse(&input).unwrap()[0] else {
+            panic!("expected rule")
+        };
         assert!(r.tail.is_empty());
     }
 

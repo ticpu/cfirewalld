@@ -19,13 +19,27 @@ progress: `docs/plan-1.4.md`.
   `-j +chain`.
 - A `:CHAIN - [0:0]` line flushes that chain even under
   `iptables-restore --noflush`. Emit each chain once per load, with all its rules.
-- iptables chain names must be under 29 characters. `CFWTMP_` plus the longest
-  generated name currently reaches 27, so the prefix has almost no slack — a
-  longer prefix or a longer config filename overflows it. Test prefixes must be
-  the same length as the real one or the limit is hit spuriously.
+- iptables loads a chain name of at most 28 characters; 29 is refused. The name
+  is `CFWTMP_` plus the config file's stem plus `+hook`, so a long file name is
+  what overflows it — `35_bd-dev-maitre.sh` reaches 31 and is rejected by the
+  helper, naming the file. Test prefixes must be the same length as the real one
+  or the limit is hit spuriously.
+- A hyphen in a config file name is excluded by the shell's chain-name regex, so
+  under the BASH path such a file's rules land silently in the global chain and
+  merge with any other hyphenated file's. The helper qualifies them properly.
+- ipset names cap at 31, and a set name carries the version prefix and, for the
+  v6 half, a `_v6` suffix. That leaves an alias 20 characters at the current
+  version, one fewer per tenfold version increase. The helper rejects an
+  over-long alias by name rather than letting the restore stream fail.
 
 ## Traps
 
+- Always build the helper with `./build-helper.sh`, never a bare `cargo build`.
+  The container pins the glibc floor at 2.30; a natively built one carries the
+  build machine's, and refuses to start on anything older. `objdump -T cfw-build
+  | grep -oE 'GLIBC_[0-9.]+' | sort -uV | tail -1` shows the floor.
+- Integration tests need `NET_ADMIN` **and** `NET_RAW`. With only the first,
+  ipset works and every rule referencing a set silently fails to install.
 - Alias names must not contain `.` or `:` — `alias_to_iptables` (`_fw_rule:70`)
   uses those to tell a literal address from an alias. A rule endpoint containing a
   dot is handed to iptables as a hostname for it to resolve.

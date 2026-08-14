@@ -138,6 +138,33 @@ pub struct BuildError {
     pub message: String,
 }
 
+/// ipset refuses a name over this length. The budget an alias actually gets is
+/// smaller: the versioned prefix grows a character every tenfold increase, and
+/// the v6 half of a pair carries a suffix.
+const IPSET_NAME_MAX: usize = 31;
+
+/// Reject a name ipset will refuse, naming the alias rather than letting the
+/// restore stream fail partway with the assembled name.
+fn check_name_length(
+    alias: &str,
+    prefix: &str,
+    origin: &crate::decl::Origin,
+) -> Result<(), BuildError> {
+    // The v6 suffix is what makes the pair's longer half; check that one.
+    let longest = format!("{prefix}{alias}_v6").len();
+    if longest > IPSET_NAME_MAX {
+        return Err(BuildError {
+            message: format!(
+                "alias {alias} at {origin}: {longest} characters with the set prefix and the v6 \
+                 suffix, over ipset's limit of {IPSET_NAME_MAX} — shorten the alias by {} \
+                 character(s)",
+                longest - IPSET_NAME_MAX
+            ),
+        });
+    }
+    Ok(())
+}
+
 fn mixed(name: &str, origin: &crate::decl::Origin, had: SetType, got: SetType) -> BuildError {
     BuildError {
         message: format!(
@@ -148,13 +175,25 @@ fn mixed(name: &str, origin: &crate::decl::Origin, had: SetType, got: SetType) -
 }
 
 /// Build every set from the alias declarations and the resolved names.
-pub fn build(decls: &[Decl], resolved: &Resolved) -> Result<Sets, BuildError> {
+///
+/// `prefix` is only used to reject a name ipset would refuse; it is applied at
+/// render time, not stored.
+pub fn build(decls: &[Decl], resolved: &Resolved, prefix: &str) -> Result<Sets, BuildError> {
     let mut sets = Sets::default();
 
     for decl in decls {
-        let Decl::Alias(Alias { name, host, port, proto, origin }) = decl else {
+        let Decl::Alias(Alias {
+            name,
+            host,
+            port,
+            proto,
+            origin,
+        }) = decl
+        else {
             continue;
         };
+
+        check_name_length(name, prefix, origin)?;
 
         let port_field = port.as_ref().map(|p| port_spec(p, proto.as_deref()));
 
@@ -164,9 +203,7 @@ pub fn build(decls: &[Decl], resolved: &Resolved) -> Result<Sets, BuildError> {
                 // match everything, which the shell has no representation for.
                 let Some(spec) = &port_field else {
                     return Err(BuildError {
-                        message: format!(
-                            "alias {name} at {origin}: host 'any' needs a port"
-                        ),
+                        message: format!("alias {name} at {origin}: host 'any' needs a port"),
                     });
                 };
                 // A port bitmap carries no family and takes no _v6 name: one
@@ -178,7 +215,11 @@ pub fn build(decls: &[Decl], resolved: &Resolved) -> Result<Sets, BuildError> {
             }
             Host::Literal(literal) => {
                 let family = Family::of_literal(&literal);
-                let set_type = if port_field.is_some() { SetType::NetPort } else { SetType::Net };
+                let set_type = if port_field.is_some() {
+                    SetType::NetPort
+                } else {
+                    SetType::Net
+                };
                 let entry = match &port_field {
                     Some(spec) => format!("{literal},{spec}"),
                     None => literal.clone(),
@@ -191,7 +232,11 @@ pub fn build(decls: &[Decl], resolved: &Resolved) -> Result<Sets, BuildError> {
             Host::Name(dns) => {
                 for addr in resolved.get(&dns) {
                     let family = Family::of(addr);
-                    let set_type = if port_field.is_some() { SetType::NetPort } else { SetType::Net };
+                    let set_type = if port_field.is_some() {
+                        SetType::NetPort
+                    } else {
+                        SetType::Net
+                    };
                     let entry = match &port_field {
                         Some(spec) => format!("{addr},{spec}"),
                         None => addr.to_string(),
@@ -214,7 +259,11 @@ pub fn render(sets: &Sets, prefix: &str) -> String {
 
     for set in sets.by_name.values() {
         let name = format!("{prefix}{}", set.name);
-        let _ = writeln!(out, "create {name} {}", set.set_type.create_args(set.family));
+        let _ = writeln!(
+            out,
+            "create {name} {}",
+            set.set_type.create_args(set.family)
+        );
         for entry in &set.entries {
             let _ = writeln!(out, "add {name} {entry}");
         }
@@ -246,7 +295,7 @@ mod tests {
     }
 
     fn build_from(input: &str, r: &Resolved) -> Sets {
-        build(&parse(input).unwrap(), r).unwrap()
+        build(&parse(input).unwrap(), r, "CFW_N_").unwrap()
     }
 
     #[test]
@@ -254,8 +303,17 @@ mod tests {
         let input = rec(&["alias", "a.sh", "1", "plain", "10.0.0.0/8"])
             + &rec(&["alias", "a.sh", "2", "ported", "10.0.0.0/8", "53", "udp"]);
         let sets = build_from(&input, &resolved(&[]));
-        assert_eq!(sets.get("plain", Family::V4).unwrap().set_type.dimensions(), 1);
-        assert_eq!(sets.get("ported", Family::V4).unwrap().set_type.dimensions(), 2);
+        assert_eq!(
+            sets.get("plain", Family::V4).unwrap().set_type.dimensions(),
+            1
+        );
+        assert_eq!(
+            sets.get("ported", Family::V4)
+                .unwrap()
+                .set_type
+                .dimensions(),
+            2
+        );
     }
 
     #[test]
@@ -263,24 +321,47 @@ mod tests {
         let input = rec(&["alias", "a.sh", "1", "net", "10.10.255.32/28"])
             + &rec(&["alias", "a.sh", "2", "net", "fd51:2050:2220:502::/64"]);
         let sets = build_from(&input, &resolved(&[]));
-        assert_eq!(sets.get("net", Family::V4).unwrap().entries, ["10.10.255.32/28"]);
-        assert_eq!(sets.get("net", Family::V6).unwrap().entries, ["fd51:2050:2220:502::/64"]);
+        assert_eq!(
+            sets.get("net", Family::V4).unwrap().entries,
+            ["10.10.255.32/28"]
+        );
+        assert_eq!(
+            sets.get("net", Family::V6).unwrap().entries,
+            ["fd51:2050:2220:502::/64"]
+        );
         assert_eq!(sets.get("net", Family::V6).unwrap().name, "net_v6");
     }
 
     #[test]
     fn a_name_fans_out_into_both_families() {
-        let input = rec(&["alias", "a.sh", "1", "svc", "host.example.test", "53", "udp"]);
+        let input = rec(&[
+            "alias",
+            "a.sh",
+            "1",
+            "svc",
+            "host.example.test",
+            "53",
+            "udp",
+        ]);
         let r = resolved(&[("host.example.test", &["192.0.2.1", "2001:db8::1"])]);
         let sets = build_from(&input, &r);
-        assert_eq!(sets.get("svc", Family::V4).unwrap().entries, ["192.0.2.1,udp:53"]);
-        assert_eq!(sets.get("svc", Family::V6).unwrap().entries, ["2001:db8::1,udp:53"]);
+        assert_eq!(
+            sets.get("svc", Family::V4).unwrap().entries,
+            ["192.0.2.1,udp:53"]
+        );
+        assert_eq!(
+            sets.get("svc", Family::V6).unwrap().entries,
+            ["2001:db8::1,udp:53"]
+        );
     }
 
     #[test]
     fn multiple_addresses_all_become_entries() {
         let input = rec(&["alias", "a.sh", "1", "pool", "pool.example.test"]);
-        let r = resolved(&[("pool.example.test", &["192.0.2.1", "192.0.2.2", "192.0.2.3"])]);
+        let r = resolved(&[(
+            "pool.example.test",
+            &["192.0.2.1", "192.0.2.2", "192.0.2.3"],
+        )]);
         let sets = build_from(&input, &r);
         assert_eq!(sets.get("pool", Family::V4).unwrap().entries.len(), 3);
     }
@@ -289,7 +370,10 @@ mod tests {
     fn port_defaults_to_bare_when_no_proto() {
         let input = rec(&["alias", "a.sh", "1", "svc", "10.0.0.1", "8200"]);
         let sets = build_from(&input, &resolved(&[]));
-        assert_eq!(sets.get("svc", Family::V4).unwrap().entries, ["10.0.0.1,8200"]);
+        assert_eq!(
+            sets.get("svc", Family::V4).unwrap().entries,
+            ["10.0.0.1,8200"]
+        );
     }
 
     #[test]
@@ -313,9 +397,30 @@ mod tests {
     }
 
     #[test]
+    fn an_alias_too_long_for_ipset_is_rejected_by_name() {
+        // 21 characters: with "CFW_102_" and "_v6" that is 32, one over.
+        let input = rec(&["alias", "a.sh", "1", "a-quite-long-alias-nm", "10.0.0.1"]);
+        let e = build(&parse(&input).unwrap(), &resolved(&[]), "CFW_102_").unwrap_err();
+        assert!(
+            e.message.contains("shorten the alias by 1"),
+            "{}",
+            e.message
+        );
+    }
+
+    #[test]
+    fn the_budget_shrinks_as_the_version_grows() {
+        // The same alias fits under a shorter prefix and not under a longer one.
+        let input = rec(&["alias", "a.sh", "1", "twenty-char-alias-nm", "10.0.0.1"]);
+        let decls = parse(&input).unwrap();
+        assert!(build(&decls, &resolved(&[]), "CFW_102_").is_ok());
+        assert!(build(&decls, &resolved(&[]), "CFW_10200_").is_err());
+    }
+
+    #[test]
     fn any_without_a_port_is_rejected() {
         let input = rec(&["alias", "a.sh", "1", "bad", "any"]);
-        let e = build(&parse(&input).unwrap(), &resolved(&[])).unwrap_err();
+        let e = build(&parse(&input).unwrap(), &resolved(&[]), "CFW_N_").unwrap_err();
         assert!(e.message.contains("needs a port"));
     }
 
@@ -337,8 +442,12 @@ mod tests {
     fn mixing_ported_and_unported_in_one_alias_is_rejected() {
         let input = rec(&["alias", "a.sh", "1", "svc", "10.0.0.1", "53", "udp"])
             + &rec(&["alias", "a.sh", "2", "svc", "10.0.0.2"]);
-        let e = build(&parse(&input).unwrap(), &resolved(&[])).unwrap_err();
-        assert!(e.message.contains("all ported or all unported"), "{}", e.message);
+        let e = build(&parse(&input).unwrap(), &resolved(&[]), "CFW_N_").unwrap_err();
+        assert!(
+            e.message.contains("all ported or all unported"),
+            "{}",
+            e.message
+        );
     }
 
     #[test]
@@ -374,7 +483,8 @@ mod production_fixture {
             );
         }
 
-        let sets = build(&decls, &Resolved { addrs }).expect("production config must build");
+        let sets =
+            build(&decls, &Resolved { addrs }, "CFWPRB_").expect("production config must build");
         let out = render(&sets, "CFWPRB_");
         std::fs::write("scratch/ipset-restore-b2e9.txt", &out).unwrap();
         println!("{} sets, {} lines", sets.by_name.len(), out.lines().count());

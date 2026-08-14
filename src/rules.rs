@@ -20,13 +20,16 @@ fn chain_name(chain: &str, origin: &Origin) -> Result<String, BuildError> {
         return Ok(format!("+{global}"));
     }
 
-    // The shell matches NN_name.sh and drops the extension.
+    // NN_name.sh, extension dropped. Unlike the shell's regex this accepts a
+    // hyphen: there, a hyphenated file matched nothing and its rules silently
+    // joined the global chain, merging with any other such file's.
     let stem = origin
         .file
         .strip_suffix(".sh")
         .filter(|s| {
-            s.split_once('_')
-                .is_some_and(|(n, rest)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) && !rest.is_empty())
+            s.split_once('_').is_some_and(|(n, rest)| {
+                !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) && !rest.is_empty()
+            })
         })
         .ok_or_else(|| BuildError {
             message: format!(
@@ -40,6 +43,29 @@ fn chain_name(chain: &str, origin: &Origin) -> Result<String, BuildError> {
 #[derive(Debug)]
 pub struct BuildError {
     pub message: String,
+}
+
+/// iptables refuses a chain name of this length or more.
+const CHAIN_NAME_MAX: usize = 29;
+
+/// Reject a chain the kernel will refuse, naming the config file responsible.
+///
+/// The name is built from the file, so an over-long one is fixed by renaming
+/// that file — which the message has to say, since the chain it names appears
+/// nowhere in the config.
+fn check_chain_length(chain: &str, prefix: &str, origin: &Origin) -> Result<(), BuildError> {
+    let full = format!("{prefix}{chain}");
+    if full.len() >= CHAIN_NAME_MAX {
+        return Err(BuildError {
+            message: format!(
+                "{origin}: chain {full} is {} characters, at or over iptables' limit of \
+                 {CHAIN_NAME_MAX} — shorten the file name by {} character(s)",
+                full.len(),
+                full.len() - CHAIN_NAME_MAX + 1
+            ),
+        });
+    }
+    Ok(())
 }
 
 /// Rules for one family, grouped by table then chain, in declaration order.
@@ -145,11 +171,20 @@ pub fn build(
     let mut out: BTreeMap<Family, Ruleset> = BTreeMap::new();
 
     for decl in decls {
-        let Decl::Rule(Rule { table, chain, src, dst, tail, origin }) = decl else {
+        let Decl::Rule(Rule {
+            table,
+            chain,
+            src,
+            dst,
+            tail,
+            origin,
+        }) = decl
+        else {
             continue;
         };
 
         let chain = chain_name(chain, origin)?;
+        check_chain_length(&chain, prefix, origin)?;
         let families = families_for(table, &probe_tail(tail));
         let tail = rewrite_targets(tail, prefix);
 
@@ -252,7 +287,10 @@ mod tests {
     fn resolved(pairs: &[(&str, &[&str])]) -> Resolved {
         let mut addrs = BTreeMap::new();
         for (name, list) in pairs {
-            addrs.insert(name.to_string(), list.iter().map(|a| a.parse().unwrap()).collect());
+            addrs.insert(
+                name.to_string(),
+                list.iter().map(|a| a.parse().unwrap()).collect(),
+            );
         }
         Resolved { addrs }
     }
@@ -264,28 +302,71 @@ mod tests {
 
     fn build_all(input: &str, r: &Resolved) -> BTreeMap<Family, Ruleset> {
         let decls = parse(input).unwrap();
-        let s = sets::build(&decls, r).unwrap();
+        let s = sets::build(&decls, r, "CFW_N_").unwrap();
         build(&decls, &s, r, "CFWTMP_", "CFW_N_", &mut both).unwrap()
     }
 
     #[test]
     fn global_chain_keeps_its_plus() {
-        let input = rec(&["rule", "12_drops.sh", "5", "filter", "+reject", "any", "any", "-j", "REJECT"]);
+        let input = rec(&[
+            "rule",
+            "12_drops.sh",
+            "5",
+            "filter",
+            "+reject",
+            "any",
+            "any",
+            "-j",
+            "REJECT",
+        ]);
         let out = build_all(&input, &resolved(&[]));
-        assert!(out[&Family::V4].tables["filter"].chains.contains_key("+reject"));
+        assert!(out[&Family::V4].tables["filter"]
+            .chains
+            .contains_key("+reject"));
     }
 
     #[test]
     fn local_chain_is_qualified_by_its_file() {
-        let input = rec(&["rule", "30_cadev.sh", "1", "filter", "forward", "any", "any", "-j", "ACCEPT"]);
+        let input = rec(&[
+            "rule",
+            "30_cadev.sh",
+            "1",
+            "filter",
+            "forward",
+            "any",
+            "any",
+            "-j",
+            "ACCEPT",
+        ]);
         let out = build_all(&input, &resolved(&[]));
-        assert!(out[&Family::V4].tables["filter"].chains.contains_key("30_cadev+forward"));
+        assert!(out[&Family::V4].tables["filter"]
+            .chains
+            .contains_key("30_cadev+forward"));
     }
 
     #[test]
     fn a_chain_fed_by_two_files_is_emitted_once() {
-        let input = rec(&["rule", "12_drops.sh", "5", "filter", "+reject", "any", "any", "-j", "REJECT"])
-            + &rec(&["rule", "50_log.sh", "2", "filter", "+reject", "any", "any", "-j", "DROP"]);
+        let input = rec(&[
+            "rule",
+            "12_drops.sh",
+            "5",
+            "filter",
+            "+reject",
+            "any",
+            "any",
+            "-j",
+            "REJECT",
+        ]) + &rec(&[
+            "rule",
+            "50_log.sh",
+            "2",
+            "filter",
+            "+reject",
+            "any",
+            "any",
+            "-j",
+            "DROP",
+        ]);
         let out = build_all(&input, &resolved(&[]));
         let text = render(&out[&Family::V4], "CFWTMP_");
         assert_eq!(text.matches(":CFWTMP_+reject").count(), 1);
@@ -294,7 +375,17 @@ mod tests {
 
     #[test]
     fn jump_to_a_global_chain_is_prefixed() {
-        let input = rec(&["rule", "12_drops.sh", "15", "filter", "+log_reject", "any", "any", "-j", "+reject"]);
+        let input = rec(&[
+            "rule",
+            "12_drops.sh",
+            "15",
+            "filter",
+            "+log_reject",
+            "any",
+            "any",
+            "-j",
+            "+reject",
+        ]);
         let out = build_all(&input, &resolved(&[]));
         let text = render(&out[&Family::V4], "CFWTMP_");
         assert!(text.contains("-j CFWTMP_+reject"), "{text}");
@@ -302,24 +393,48 @@ mod tests {
 
     #[test]
     fn the_probe_is_asked_about_the_rules_own_table() {
-        let input = rec(&["rule", "30_cadev.sh", "192", "nat", "prerouting", "any", "any",
-                          "-p", "tcp", "--dport", "25", "-j", "REDIRECT"]);
+        let input = rec(&[
+            "rule",
+            "30_cadev.sh",
+            "192",
+            "nat",
+            "prerouting",
+            "any",
+            "any",
+            "-p",
+            "tcp",
+            "--dport",
+            "25",
+            "-j",
+            "REDIRECT",
+        ]);
         let decls = parse(&input).unwrap();
-        let s = sets::build(&decls, &resolved(&[])).unwrap();
+        let s = sets::build(&decls, &resolved(&[]), "CFW_N_").unwrap();
         let mut seen = Vec::new();
-        let out = build(&decls, &s, &resolved(&[]), "CFWTMP_", "CFW_N_", &mut |table, _| {
-            seen.push(table.to_string());
-            vec![Family::V4]
-        })
+        let out = build(
+            &decls,
+            &s,
+            &resolved(&[]),
+            "CFWTMP_",
+            "CFW_N_",
+            &mut |table, _| {
+                seen.push(table.to_string());
+                vec![Family::V4]
+            },
+        )
         .unwrap();
         assert_eq!(seen, ["nat"]);
-        assert!(out[&Family::V4].tables["nat"].chains.contains_key("30_cadev+prerouting"));
+        assert!(out[&Family::V4].tables["nat"]
+            .chains
+            .contains_key("30_cadev+prerouting"));
     }
 
     #[test]
     fn a_set_match_names_the_set_prefix_not_the_chain_prefix() {
         let input = rec(&["alias", "a.sh", "1", "svc", "10.0.0.0/8"])
-            + &rec(&["rule", "10_x.sh", "2", "filter", "forward", "svc", "any", "-j", "+reject"]);
+            + &rec(&[
+                "rule", "10_x.sh", "2", "filter", "forward", "svc", "any", "-j", "+reject",
+            ]);
         let out = build_all(&input, &resolved(&[]));
         let text = render(&out[&Family::V4], "CFWTMP_");
         // The chain is renamed at commit, the set is not.
@@ -331,7 +446,9 @@ mod tests {
     fn alias_endpoint_emits_matching_direction_count() {
         let input = rec(&["alias", "a.sh", "1", "plain", "10.0.0.0/8"])
             + &rec(&["alias", "a.sh", "2", "ported", "10.0.0.0/8", "53", "udp"])
-            + &rec(&["rule", "10_x.sh", "3", "filter", "forward", "plain", "ported", "-j", "ACCEPT"]);
+            + &rec(&[
+                "rule", "10_x.sh", "3", "filter", "forward", "plain", "ported", "-j", "ACCEPT",
+            ]);
         let out = build_all(&input, &resolved(&[]));
         let text = render(&out[&Family::V4], "CFWTMP_");
         assert!(text.contains("--match-set CFW_N_plain src "), "{text}");
@@ -341,7 +458,9 @@ mod tests {
     #[test]
     fn a_rule_is_skipped_where_its_alias_has_no_set() {
         let input = rec(&["alias", "a.sh", "1", "v4only", "10.0.0.0/8"])
-            + &rec(&["rule", "10_x.sh", "2", "filter", "forward", "v4only", "any", "-j", "ACCEPT"]);
+            + &rec(&[
+                "rule", "10_x.sh", "2", "filter", "forward", "v4only", "any", "-j", "ACCEPT",
+            ]);
         let out = build_all(&input, &resolved(&[]));
         assert!(out.contains_key(&Family::V4));
         assert!(!out.contains_key(&Family::V6));
@@ -349,33 +468,70 @@ mod tests {
 
     #[test]
     fn literal_endpoint_goes_to_its_own_family_only() {
-        let input = rec(&["rule", "10_x.sh", "1", "filter", "forward", "10.0.0.1", "any", "-j", "ACCEPT"]);
+        let input = rec(&[
+            "rule", "10_x.sh", "1", "filter", "forward", "10.0.0.1", "any", "-j", "ACCEPT",
+        ]);
         let out = build_all(&input, &resolved(&[]));
-        assert!(out[&Family::V4].tables["filter"].chains["10_x+forward"][0].starts_with("-s 10.0.0.1"));
+        assert!(
+            out[&Family::V4].tables["filter"].chains["10_x+forward"][0].starts_with("-s 10.0.0.1")
+        );
         assert!(!out.contains_key(&Family::V6));
     }
 
     #[test]
     fn hostname_endpoint_expands_to_one_rule_per_address() {
-        let input = rec(&["rule", "10_x.sh", "1", "filter", "forward", "pool.example.test", "any", "-j", "ACCEPT"]);
-        let r = resolved(&[("pool.example.test", &["192.0.2.1", "192.0.2.2", "2001:db8::1"])]);
+        let input = rec(&[
+            "rule",
+            "10_x.sh",
+            "1",
+            "filter",
+            "forward",
+            "pool.example.test",
+            "any",
+            "-j",
+            "ACCEPT",
+        ]);
+        let r = resolved(&[(
+            "pool.example.test",
+            &["192.0.2.1", "192.0.2.2", "2001:db8::1"],
+        )]);
         let out = build_all(&input, &r);
-        assert_eq!(out[&Family::V4].tables["filter"].chains["10_x+forward"].len(), 2);
-        assert_eq!(out[&Family::V6].tables["filter"].chains["10_x+forward"].len(), 1);
+        assert_eq!(
+            out[&Family::V4].tables["filter"].chains["10_x+forward"].len(),
+            2
+        );
+        assert_eq!(
+            out[&Family::V6].tables["filter"].chains["10_x+forward"].len(),
+            1
+        );
     }
 
     #[test]
     fn any_endpoint_emits_no_match() {
-        let input = rec(&["rule", "10_x.sh", "1", "filter", "forward", "any", "any", "-j", "ACCEPT"]);
+        let input = rec(&[
+            "rule", "10_x.sh", "1", "filter", "forward", "any", "any", "-j", "ACCEPT",
+        ]);
         let out = build_all(&input, &resolved(&[]));
-        assert_eq!(out[&Family::V4].tables["filter"].chains["10_x+forward"][0], "-j ACCEPT");
+        assert_eq!(
+            out[&Family::V4].tables["filter"].chains["10_x+forward"][0],
+            "-j ACCEPT"
+        );
     }
 
     #[test]
     fn tail_arguments_with_spaces_are_quoted() {
         let input = rec(&[
-            "rule", "12_drops.sh", "10", "filter", "+log_drop", "any", "any",
-            "-j", "LOG", "--log-prefix", "LD: ",
+            "rule",
+            "12_drops.sh",
+            "10",
+            "filter",
+            "+log_drop",
+            "any",
+            "any",
+            "-j",
+            "LOG",
+            "--log-prefix",
+            "LD: ",
         ]);
         let out = build_all(&input, &resolved(&[]));
         let text = render(&out[&Family::V4], "CFWTMP_");
@@ -384,8 +540,19 @@ mod tests {
 
     #[test]
     fn each_table_gets_its_own_commit() {
-        let input = rec(&["rule", "10_x.sh", "1", "filter", "forward", "any", "any", "-j", "ACCEPT"])
-            + &rec(&["rule", "10_x.sh", "2", "nat", "prerouting", "any", "any", "-j", "REDIRECT"]);
+        let input = rec(&[
+            "rule", "10_x.sh", "1", "filter", "forward", "any", "any", "-j", "ACCEPT",
+        ]) + &rec(&[
+            "rule",
+            "10_x.sh",
+            "2",
+            "nat",
+            "prerouting",
+            "any",
+            "any",
+            "-j",
+            "REDIRECT",
+        ]);
         let out = build_all(&input, &resolved(&[]));
         let text = render(&out[&Family::V4], "CFWTMP_");
         assert_eq!(text.matches("COMMIT").count(), 2);
@@ -395,9 +562,39 @@ mod tests {
 
     #[test]
     fn rule_order_within_a_chain_is_preserved() {
-        let input = rec(&["rule", "12_drops.sh", "5", "filter", "+reject", "any", "any", "-p", "tcp", "-j", "REJECT"])
-            + &rec(&["rule", "12_drops.sh", "6", "filter", "+reject", "any", "any", "-j", "REJECT"])
-            + &rec(&["rule", "12_drops.sh", "7", "filter", "+reject", "any", "any", "-j", "DROP"]);
+        let input = rec(&[
+            "rule",
+            "12_drops.sh",
+            "5",
+            "filter",
+            "+reject",
+            "any",
+            "any",
+            "-p",
+            "tcp",
+            "-j",
+            "REJECT",
+        ]) + &rec(&[
+            "rule",
+            "12_drops.sh",
+            "6",
+            "filter",
+            "+reject",
+            "any",
+            "any",
+            "-j",
+            "REJECT",
+        ]) + &rec(&[
+            "rule",
+            "12_drops.sh",
+            "7",
+            "filter",
+            "+reject",
+            "any",
+            "any",
+            "-j",
+            "DROP",
+        ]);
         let out = build_all(&input, &resolved(&[]));
         let rules = &out[&Family::V4].tables["filter"].chains["+reject"];
         assert_eq!(rules[0], "-p tcp -j REJECT");
@@ -406,26 +603,106 @@ mod tests {
 
     #[test]
     fn a_tail_only_one_family_accepts_is_emitted_once() {
-        let input = rec(&["rule", "50_log.sh", "9", "filter", "forward", "any", "any",
-                          "-p", "icmpv6", "--icmpv6-type", "echo-request", "-j", "DROP"]);
+        let input = rec(&[
+            "rule",
+            "50_log.sh",
+            "9",
+            "filter",
+            "forward",
+            "any",
+            "any",
+            "-p",
+            "icmpv6",
+            "--icmpv6-type",
+            "echo-request",
+            "-j",
+            "DROP",
+        ]);
         let decls = parse(&input).unwrap();
-        let s = sets::build(&decls, &resolved(&[])).unwrap();
-        let out = build(&decls, &s, &resolved(&[]), "CFWTMP_", "CFW_N_", &mut |_, _| vec![Family::V6]).unwrap();
+        let s = sets::build(&decls, &resolved(&[]), "CFW_N_").unwrap();
+        let out = build(
+            &decls,
+            &s,
+            &resolved(&[]),
+            "CFWTMP_",
+            "CFW_N_",
+            &mut |_, _| vec![Family::V6],
+        )
+        .unwrap();
         assert!(!out.contains_key(&Family::V4));
-        assert_eq!(out[&Family::V6].tables["filter"].chains["50_log+forward"].len(), 1);
+        assert_eq!(
+            out[&Family::V6].tables["filter"].chains["50_log+forward"].len(),
+            1
+        );
     }
 
     #[test]
     fn probe_sees_a_concrete_target_not_a_generated_chain() {
         let tail: Vec<String> = ["-j", "+reject"].iter().map(|s| s.to_string()).collect();
-        assert_eq!(probe_tail(&tail), vec!["-j".to_string(), "ACCEPT".to_string()]);
+        assert_eq!(
+            probe_tail(&tail),
+            vec!["-j".to_string(), "ACCEPT".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_hyphenated_file_gets_its_own_chain() {
+        let input = rec(&[
+            "rule",
+            "35_bd-maitre.sh",
+            "1",
+            "filter",
+            "forward",
+            "any",
+            "any",
+            "-j",
+            "ACCEPT",
+        ]);
+        let out = build_all(&input, &resolved(&[]));
+        assert!(out[&Family::V4].tables["filter"]
+            .chains
+            .contains_key("35_bd-maitre+forward"));
+    }
+
+    #[test]
+    fn a_file_name_yielding_an_over_long_chain_is_rejected() {
+        let input = rec(&[
+            "rule",
+            "35_bd-dev-maitre.sh",
+            "1",
+            "filter",
+            "forward",
+            "any",
+            "any",
+            "-j",
+            "ACCEPT",
+        ]);
+        let decls = parse(&input).unwrap();
+        let s = sets::build(&decls, &resolved(&[]), "CFW_N_").unwrap();
+        let e = build(&decls, &s, &resolved(&[]), "CFWTMP_", "CFW_N_", &mut both).unwrap_err();
+        // CFWTMP_35_bd-dev-maitre+forward is 31; the longest iptables loads is 28.
+        assert!(
+            e.message.contains("shorten the file name by 3"),
+            "{}",
+            e.message
+        );
     }
 
     #[test]
     fn badly_named_config_file_is_rejected() {
-        let input = rec(&["rule", "notnumbered.sh", "1", "filter", "forward", "any", "any", "-j", "ACCEPT"]);
+        let input = rec(&[
+            "rule",
+            "notnumbered.sh",
+            "1",
+            "filter",
+            "forward",
+            "any",
+            "any",
+            "-j",
+            "ACCEPT",
+        ]);
         let decls = parse(&input).unwrap();
-        let s = sets::build(&decls, &resolved(&[])).unwrap();
+        let s = sets::build(&decls, &resolved(&[]), "CFW_N_").unwrap();
         let e = build(&decls, &s, &resolved(&[]), "CFWTMP_", "CFW_N_", &mut both).unwrap_err();
         assert!(e.message.contains("NN_name.sh"), "{}", e.message);
     }
@@ -454,9 +731,16 @@ mod production_fixture {
         }
         let r = Resolved { addrs };
 
-        let s = sets::build(&decls, &r).unwrap();
-        let out = build(&decls, &s, &r, "CFWPRB_", "CFWPRB_", &mut |_: &str, _: &[String]| vec![Family::V4, Family::V6])
-            .expect("production rules must build");
+        let s = sets::build(&decls, &r, "CFWPRB_").unwrap();
+        let out = build(
+            &decls,
+            &s,
+            &r,
+            "CFWPRB_",
+            "CFWPRB_",
+            &mut |_: &str, _: &[String]| vec![Family::V4, Family::V6],
+        )
+        .expect("production rules must build");
 
         for (family, ruleset) in &out {
             let name = match family {
@@ -465,8 +749,16 @@ mod production_fixture {
             };
             let text = render(ruleset, "CFWPRB_");
             let chains: usize = ruleset.tables.values().map(|t| t.chains.len()).sum();
-            let count: usize = ruleset.tables.values().flat_map(|t| t.chains.values()).map(Vec::len).sum();
-            println!("{name}: {chains} chains, {count} rules, {} lines", text.lines().count());
+            let count: usize = ruleset
+                .tables
+                .values()
+                .flat_map(|t| t.chains.values())
+                .map(Vec::len)
+                .sum();
+            println!(
+                "{name}: {chains} chains, {count} rules, {} lines",
+                text.lines().count()
+            );
             std::fs::write(format!("scratch/iptables-restore-{name}-b2e9.txt"), text).unwrap();
         }
     }

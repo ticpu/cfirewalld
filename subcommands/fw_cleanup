@@ -24,11 +24,18 @@ ipt_flush () {
 }
 
 ipt_remove () {
-	$IPTABLES -t $ipt_cur_table -X $ipt_cur_chain
+	# Same as ips_destroy: a chain something still jumps to stays, and the
+	# reload must carry on rather than abandon what follows cleanup.
+	$IPTABLES -t $ipt_cur_table -X $ipt_cur_chain \
+		|| decho "kept $ipt_cur_chain in $ipt_cur_table: still referenced"
 }
 
+# A set still referenced by a live rule cannot be destroyed, and that is not an
+# error: the generation it belongs to is still in use, and the next reload takes
+# it. Aborting here instead skipped everything after cleanup, post-run.d
+# included, on a reload that had already committed.
 ips_destroy () {
-	$IPSET destroy $ips_cur_set
+	$IPSET destroy $ips_cur_set || decho "kept $ips_cur_set: still in use"
 }
 
 ipt_foreach_chain_starting_with "$FWTMP" ipt_flush
