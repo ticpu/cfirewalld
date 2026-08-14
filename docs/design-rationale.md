@@ -47,9 +47,17 @@ Both iptables and ip6tables accept protocol matches belonging to the other famil
 from the tail, and a rule is confined to a family only by an alias that exists for
 that family alone.
 
-Rules whose endpoints are all literals or `any` are emitted for both families and
-kept where the load succeeds. A rule that names a family-specific protocol without a
-family-specific alias is installed on both, where the wrong one matches nothing.
+Where an alias does not settle it, the rule is offered to each family's binary in a
+scratch chain and kept where it is accepted. Options belonging to one family are
+rejected as unknown, which is the only discrimination available: a protocol name
+alone parses under both, and is installed on both, where the wrong one matches
+nothing.
+
+Asking the kernel is the same move the apply path makes — build somewhere
+unreferenced, keep what is accepted, commit after. A table of family-specific
+options would have to track the whole iptables vocabulary and would go stale
+against the binary that already knows the answer. The probe is once per distinct
+rule tail, not once per rule.
 
 ## Hostnames appearing directly in rules
 

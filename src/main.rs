@@ -1,5 +1,7 @@
 mod decl;
+mod probe;
 mod resolve;
+mod rules;
 mod sets;
 
 fn main() {

@@ -10,7 +10,7 @@ use std::net::IpAddr;
 use crate::decl::{Alias, Decl};
 use crate::resolve::{classify, Host, Resolved};
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Family {
     V4,
     V6,
@@ -361,7 +361,7 @@ mod production_fixture {
         }
 
         let sets = build(&decls, &Resolved { addrs }).expect("production config must build");
-        let out = render(&sets, "CFWPROBE_");
+        let out = render(&sets, "CFWPRB_");
         std::fs::write("scratch/ipset-restore-b2e9.txt", &out).unwrap();
         println!("{} sets, {} lines", sets.by_name.len(), out.lines().count());
     }

@@ -19,6 +19,10 @@ progress: `docs/plan-1.4.md`.
   `-j +chain`.
 - A `:CHAIN - [0:0]` line flushes that chain even under
   `iptables-restore --noflush`. Emit each chain once per load, with all its rules.
+- iptables chain names must be under 29 characters. `CFWTMP_` plus the longest
+  generated name currently reaches 27, so the prefix has almost no slack — a
+  longer prefix or a longer config filename overflows it. Test prefixes must be
+  the same length as the real one or the limit is hit spuriously.
 
 ## Traps
 
