@@ -44,26 +44,44 @@ pub struct Usage {
 }
 
 /// Collect every name needing DNS, with the places it is used.
+///
+/// A rule endpoint naming an alias is not a hostname: the alias supplies the
+/// set, and resolving its name would send the alias to DNS.
 pub fn names_to_resolve(decls: &[Decl]) -> BTreeMap<String, Vec<Usage>> {
+    let aliases: BTreeSet<&str> = decls
+        .iter()
+        .filter_map(|d| match d {
+            Decl::Alias(Alias { name, .. }) => Some(name.as_str()),
+            Decl::Rule(_) => None,
+        })
+        .collect();
+
     let mut names: BTreeMap<String, Vec<Usage>> = BTreeMap::new();
 
-    let mut note = |host: &str, context: String, origin: &Origin| {
-        if let Host::Name(n) = classify(host) {
-            names.entry(n).or_default().push(Usage {
-                context,
-                origin: origin.clone(),
-            });
-        }
-    };
-
     for d in decls {
-        match d {
-            Decl::Alias(Alias { name, host, origin, .. }) => {
-                note(host, format!("alias {name}"), origin);
+        // An alias's own host is resolved even where it shares a name with
+        // another alias: that is the value being defined, not a reference.
+        let uses: [(&str, String, &Origin); 2] = match d {
+            Decl::Alias(Alias { name, host, origin, .. }) => [
+                (host.as_str(), format!("alias {name}"), origin),
+                ("", String::new(), origin),
+            ],
+            Decl::Rule(Rule { src, dst, origin, .. }) => [
+                (src.as_str(), "rule source".to_string(), origin),
+                (dst.as_str(), "rule destination".to_string(), origin),
+            ],
+        };
+        let referenced = matches!(d, Decl::Rule(_));
+
+        for (host, context, origin) in uses {
+            if host.is_empty() || (referenced && aliases.contains(host)) {
+                continue;
             }
-            Decl::Rule(Rule { src, dst, origin, .. }) => {
-                note(src, "rule source".to_string(), origin);
-                note(dst, "rule destination".to_string(), origin);
+            if let Host::Name(n) = classify(host) {
+                names.entry(n).or_default().push(Usage {
+                    context,
+                    origin: origin.clone(),
+                });
             }
         }
     }
@@ -110,41 +128,42 @@ pub async fn resolve_all(
     .await;
 
     let mut addrs = BTreeMap::new();
-    let mut failures = Vec::new();
+    // Keyed by where the name is used, so the report reads in the order the
+    // config files do: cleaning up a run's worth of dead names is one pass
+    // through the files rather than one reload per name.
+    let mut failures: BTreeMap<(String, u32), Vec<String>> = BTreeMap::new();
 
     for (name, result) in results {
-        let used_by = |names: &BTreeMap<String, Vec<Usage>>| {
-            names
-                .get(&name)
-                .map(|u| {
-                    u.iter()
-                        .map(|u| format!("{} at {}", u.context, u.origin))
-                        .collect::<BTreeSet<_>>()
-                        .into_iter()
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                })
-                .unwrap_or_default()
+        let reason = match result {
+            Ok(list) if !list.is_empty() => {
+                addrs.insert(name, list);
+                continue;
+            }
+            Ok(_) => "no address".to_string(),
+            Err(e) => e.to_string(),
         };
 
-        match result {
-            Ok(list) if list.is_empty() => {
-                failures.push(format!("{name} resolved to no address ({})", used_by(names)));
-            }
-            Ok(list) => {
-                addrs.insert(name, list);
-            }
-            Err(e) => {
-                failures.push(format!("{name}: {e} ({})", used_by(names)));
-            }
+        for usage in names.get(&name).map(Vec::as_slice).unwrap_or_default() {
+            failures
+                .entry((usage.origin.file.clone(), usage.origin.line))
+                .or_default()
+                .push(format!("{} ({}): {reason}", name, usage.context));
         }
     }
 
     if failures.is_empty() {
-        Ok(Resolved { addrs })
-    } else {
-        Err(failures)
+        return Ok(Resolved { addrs });
     }
+
+    let mut report: Vec<String> = Vec::new();
+    for ((file, line), mut entries) in failures {
+        entries.sort();
+        entries.dedup();
+        for entry in entries {
+            report.push(format!("{file}:{line}: {entry}"));
+        }
+    }
+    Err(report)
 }
 
 #[cfg(test)]
@@ -190,6 +209,32 @@ mod tests {
         assert_eq!(names.len(), 2);
         assert!(names.contains_key("host.example.test"));
         assert!(names.contains_key("other.example.test"));
+    }
+
+    #[test]
+    fn an_alias_used_as_an_endpoint_is_not_resolved() {
+        let input = rec(&["alias", "a.sh", "1", "cc_dev", "10.0.0.0/8"])
+            + &rec(&["rule", "10_x.sh", "2", "filter", "forward", "cc_dev", "any", "-j", "ACCEPT"]);
+        let names = names_to_resolve(&parse(&input).unwrap());
+        assert!(names.is_empty(), "{names:?}");
+    }
+
+    #[test]
+    fn an_alias_defined_only_by_dns_still_resolves_its_host() {
+        let input = rec(&["alias", "a.sh", "1", "cadevk8s", "node1.example.test"])
+            + &rec(&["rule", "10_x.sh", "2", "filter", "forward", "cadevk8s", "any", "-j", "ACCEPT"]);
+        let names = names_to_resolve(&parse(&input).unwrap());
+        assert_eq!(names.len(), 1);
+        assert!(names.contains_key("node1.example.test"));
+    }
+
+    #[test]
+    fn a_hostname_endpoint_that_is_not_an_alias_still_resolves() {
+        let input = rec(&["alias", "a.sh", "1", "cc_dev", "10.0.0.0/8"])
+            + &rec(&["rule", "10_x.sh", "2", "filter", "forward", "host.example.test", "cc_dev", "-j", "ACCEPT"]);
+        let names = names_to_resolve(&parse(&input).unwrap());
+        assert_eq!(names.len(), 1);
+        assert!(names.contains_key("host.example.test"));
     }
 
     #[test]

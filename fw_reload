@@ -27,6 +27,13 @@ set -eu
 source subcommands/fw_vars
 
 _exit_cleanup () {
+	# Before removing the socket: tail holds the fd open, so a deleted file
+	# leaves it following nothing forever. Every abort and rollback path
+	# leaves through here, which is why the kill cannot live at the end.
+	if [ -n "${LOG_TAIL_PID-}" ]; then
+		kill "$LOG_TAIL_PID" 2>/dev/null || true
+		wait "$LOG_TAIL_PID" 2>/dev/null || true
+	fi
 	[ -d "$CACHEDIR" ] && rm -rf "$CACHEDIR"
 	[ -e "$LOG_SOCKET" ] && rm -f "$LOG_SOCKET"
 	if [ $CONNTRACK_ENABLED -eq 1 ]
@@ -44,6 +51,7 @@ trap _exit_cleanup EXIT
 # Log socket
 truncate -s 0 "$LOG_SOCKET"
 tail -f "$LOG_SOCKET" 1>&2 &
+LOG_TAIL_PID=$!
 
 cd "$DIR/.."
 
@@ -99,6 +107,4 @@ do
 	fi
 done
 
-# Kill the background tail process.
-kill %1 2>/dev/null
 exit 0

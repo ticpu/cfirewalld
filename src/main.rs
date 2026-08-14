@@ -136,7 +136,10 @@ fn main() {
             for f in &failures {
                 eprintln!("cfw-build: {f}");
             }
-            die(&format!("{} name(s) did not resolve", failures.len()));
+            die(&format!(
+                "{} unresolvable name(s); every one is listed above with its file and line",
+                failures.len()
+            ));
         }
     };
 
