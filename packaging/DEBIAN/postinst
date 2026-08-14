@@ -1,0 +1,22 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+	configure)
+		if [ -d /run/systemd/system ]; then
+			systemctl daemon-reload || true
+			# The unit only restores a saved ruleset at boot, so enabling it
+			# does not apply a firewall now.
+			systemctl --quiet enable cfirewalld.service \
+				|| echo "cfirewalld postinst: enable cfirewalld.service failed; the firewall will not be restored at boot (continuing)" >&2
+		fi
+		;;
+	abort-upgrade|abort-remove|abort-deconfigure)
+		;;
+	*)
+		echo "postinst called with unknown argument \`$1'" >&2
+		exit 1
+		;;
+esac
+
+exit 0

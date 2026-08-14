@@ -27,8 +27,11 @@ IMG="cfirewalld-build:${TARGET}"
 
 $CONTAINER_CMD build -f Containerfile --build-arg "TARGET=$TARGET" -t "$IMG" .
 CONTAINER=$($CONTAINER_CMD create "$IMG")
+# Suffixed for cross-builds; the package installs the unsuffixed name.
 $CONTAINER_CMD cp "$CONTAINER:/app/cfw-build" "cfw-build.$SUFFIX"
 $CONTAINER_CMD rm "$CONTAINER"
 $CONTAINER_CMD image rm "$IMG"
+
+cp "cfw-build.$SUFFIX" cfw-build
 
 echo "Built cfw-build.$SUFFIX"

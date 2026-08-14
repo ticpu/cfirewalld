@@ -1,0 +1,21 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+	purge)
+		# Saved rulesets only; the running firewall is untouched.
+		rm -rf /var/lib/cfirewalld
+		;;
+	remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+		;;
+	*)
+		echo "postrm called with unknown argument \`$1'" >&2
+		exit 1
+		;;
+esac
+
+if [ "$1" = "remove" ] && [ -d /run/systemd/system ]; then
+	systemctl daemon-reload || true
+fi
+
+exit 0

@@ -1,0 +1,4 @@
+/etc/cfirewalld/fw_vars
+/etc/cfirewalld/firewall.d/10_conntrack.sh
+/etc/cfirewalld/firewall.d/12_drops.sh
+/etc/cfirewalld/firewall.d/50_log.sh

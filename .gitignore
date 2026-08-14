@@ -2,4 +2,6 @@ firewall.d/
 /target/
 /Cargo.lock
 /scratch/
+/cfw-build
 /cfw-build.*
+*.deb

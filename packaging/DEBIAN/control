@@ -1,0 +1,12 @@
+Package: cfirewalld
+Version: 0.0.0-replaced-by-makefile
+Section: misc
+Priority: optional
+Architecture: amd64
+Maintainer: Jérôme Poulin <jeromepoulin@gmail.com>
+Depends: dnsutils, ipset, iptables (>= 1.8), sudo, systemd
+Suggests: conntrack, conntrackd
+Homepage: https://github.com/ticpu/cfirewalld
+Description: Bash based firewall.
+ Script to automate application and rollback of iptables based firewall.
+ Allows one to group rules together and resolve hostnames.

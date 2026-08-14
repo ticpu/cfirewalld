@@ -1,0 +1,19 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+	remove|deconfigure)
+		if [ -d /run/systemd/system ]; then
+			systemctl --quiet disable --now cfirewalld.service \
+				|| echo "cfirewalld prerm: disable cfirewalld.service failed (continuing)" >&2
+		fi
+		;;
+	upgrade|failed-upgrade)
+		;;
+	*)
+		echo "prerm called with unknown argument \`$1'" >&2
+		exit 1
+		;;
+esac
+
+exit 0
