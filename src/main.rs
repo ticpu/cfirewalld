@@ -67,10 +67,14 @@ fn parse_args() -> Config {
 }
 
 /// Feed text to a command's stdin and wait for it.
+///
+/// The submitting program names the offending line — an exit status alone
+/// leaves the reader with a rejected ruleset and no idea which rule did it.
 fn submit(program: &str, args: &[&str], input: &str) -> Result<(), String> {
     let mut child = Command::new(program)
         .args(args)
         .stdin(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("running {program}: {e}"))?;
 
@@ -81,15 +85,29 @@ fn submit(program: &str, args: &[&str], input: &str) -> Result<(), String> {
         .write_all(input.as_bytes())
         .map_err(|e| format!("writing to {program}: {e}"))?;
 
-    let status = child
-        .wait()
+    let out = child
+        .wait_with_output()
         .map_err(|e| format!("waiting for {program}: {e}"))?;
 
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("{program} exited with {status}"))
+    if out.status.success() {
+        return Ok(());
     }
+
+    let complaint = String::from_utf8_lossy(&out.stderr);
+    let complaint = complaint.trim();
+    // The reported line number indexes the stream just submitted, so quote it.
+    let offending = complaint
+        .split_once("Error occurred at line: ")
+        .and_then(|(_, rest)| rest.split_whitespace().next())
+        .and_then(|n| n.parse::<usize>().ok())
+        .and_then(|n| input.lines().nth(n - 1))
+        .map(|line| format!("\n  line: {line}"))
+        .unwrap_or_default();
+
+    Err(format!(
+        "{program} exited with {}: {complaint}{offending}",
+        out.status
+    ))
 }
 
 /// Keep what was submitted, so a failed run can be read back.

@@ -20,7 +20,9 @@ fn chain_name(chain: &str, origin: &Origin) -> Result<String, BuildError> {
         return Ok(format!("+{global}"));
     }
 
-    // The shell matches NN_name.sh and drops the extension.
+    // NN_name.sh, extension dropped. Unlike the shell's regex this accepts a
+    // hyphen: there, a hyphenated file matched nothing and its rules silently
+    // joined the global chain, merging with any other such file's.
     let stem = origin
         .file
         .strip_suffix(".sh")
@@ -41,6 +43,29 @@ fn chain_name(chain: &str, origin: &Origin) -> Result<String, BuildError> {
 #[derive(Debug)]
 pub struct BuildError {
     pub message: String,
+}
+
+/// iptables refuses a chain name of this length or more.
+const CHAIN_NAME_MAX: usize = 29;
+
+/// Reject a chain the kernel will refuse, naming the config file responsible.
+///
+/// The name is built from the file, so an over-long one is fixed by renaming
+/// that file — which the message has to say, since the chain it names appears
+/// nowhere in the config.
+fn check_chain_length(chain: &str, prefix: &str, origin: &Origin) -> Result<(), BuildError> {
+    let full = format!("{prefix}{chain}");
+    if full.len() >= CHAIN_NAME_MAX {
+        return Err(BuildError {
+            message: format!(
+                "{origin}: chain {full} is {} characters, at or over iptables' limit of \
+                 {CHAIN_NAME_MAX} — shorten the file name by {} character(s)",
+                full.len(),
+                full.len() - CHAIN_NAME_MAX + 1
+            ),
+        });
+    }
+    Ok(())
 }
 
 /// Rules for one family, grouped by table then chain, in declaration order.
@@ -159,6 +184,7 @@ pub fn build(
         };
 
         let chain = chain_name(chain, origin)?;
+        check_chain_length(&chain, prefix, origin)?;
         let families = families_for(table, &probe_tail(tail));
         let tail = rewrite_targets(tail, prefix);
 
@@ -616,6 +642,49 @@ mod tests {
         assert_eq!(
             probe_tail(&tail),
             vec!["-j".to_string(), "ACCEPT".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_hyphenated_file_gets_its_own_chain() {
+        let input = rec(&[
+            "rule",
+            "35_bd-maitre.sh",
+            "1",
+            "filter",
+            "forward",
+            "any",
+            "any",
+            "-j",
+            "ACCEPT",
+        ]);
+        let out = build_all(&input, &resolved(&[]));
+        assert!(out[&Family::V4].tables["filter"]
+            .chains
+            .contains_key("35_bd-maitre+forward"));
+    }
+
+    #[test]
+    fn a_file_name_yielding_an_over_long_chain_is_rejected() {
+        let input = rec(&[
+            "rule",
+            "35_bd-dev-maitre.sh",
+            "1",
+            "filter",
+            "forward",
+            "any",
+            "any",
+            "-j",
+            "ACCEPT",
+        ]);
+        let decls = parse(&input).unwrap();
+        let s = sets::build(&decls, &resolved(&[]), "CFW_N_").unwrap();
+        let e = build(&decls, &s, &resolved(&[]), "CFWTMP_", "CFW_N_", &mut both).unwrap_err();
+        // CFWTMP_35_bd-dev-maitre+forward is 31; the longest iptables loads is 28.
+        assert!(
+            e.message.contains("shorten the file name by 3"),
+            "{}",
+            e.message
         );
     }
 
