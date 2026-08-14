@@ -28,6 +28,10 @@ declarations. Timed as:
 
 Projection: bashisms alone ~20s (DNS floor untouched); helper ~1-2s.
 
+Achieved, same host and config: **691 processes, 5.3s** — 20x fewer processes,
+5.7x faster. `user`+`sys` is 1.8s of that 5.3s, so it is no longer fork-bound;
+the remainder is conntrackd's stop, `sleep 1` and start.
+
 DNS stub used for the measurement, as `/etc/cfirewalld/dig-stub` with
 `export DIG="_run /etc/cfirewalld/dig-stub"` in `fw_vars`:
 
@@ -131,15 +135,9 @@ trap.
 
 ## Deferred
 
-- `fw_prepare_zones` creates all five delegate chains in every table and family,
-  then deletes the unused ones: 90 iptables invocations plus six saves per
-  reload, to end up with one or two chains. It cannot know which hooks are used
-  before reading them back, but the helper does — it just built them. Now the
-  dominant per-reload cost.
 
-- Bashism cleanup of the remaining shell (`type -P` for `which`, `printf %(%T)T`
-  for `date`, parameter expansion for `cut`/`sed`). Superseded for the hot path by
-  the helper; still worth it for `fw_reload`-level cost.
+- The conntrackd stop/start around a reload, with its `sleep 1`, is now most of
+  the wall time.
 - `get_current_ips_version` (`fw_common.sh:34-40`) updates `last` inside a
   pipeline subshell, so the comparison never persists to the parent. Correctness
   bug, unrelated to performance.
