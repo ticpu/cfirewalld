@@ -2,3 +2,4 @@ firewall.d/
 /target/
 /Cargo.lock
 /scratch/
+/cfw-build.*

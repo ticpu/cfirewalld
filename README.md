@@ -23,9 +23,11 @@ programming language. Also, using iptables library would help speed very much.
 iptables 1.8 or later, ipset, dig, sudo and systemd. Either iptables backend
 works; the nf_tables one is what 1.4 is tested against.
 
-From 1.4 the build phase runs in a Rust helper, so building the package needs a
-Rust toolchain. The package remains `Architecture: any` and builds wherever Rust
-does. Where the helper is missing, or when `CFW_HELPER=0` is set in `fw_vars`,
+From 1.4 the build phase runs in a Rust helper. `./build-helper.sh [x86_64|aarch64]`
+builds it in a container, so the build host needs only podman or docker. It is
+compiled against bullseye and runs on Debian 11 and Ubuntu 20.04 or newer.
+
+Where the helper is missing, or when `CFW_HELPER=0` is set in `fw_vars`,
 `fw_reload` falls back to the BASH implementation, which stays supported.
 
 ## TODO
