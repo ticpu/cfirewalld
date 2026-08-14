@@ -3,27 +3,13 @@
 # Drive the integration tests in a container.
 #
 # The container has its own network namespace, so the firewall it builds is
-# unreachable from the host. NET_ADMIN drives iptables and ipset; SYS_MODULE is
-# what an `-m set` match needs, because the kernel checks for it before finding
-# xt_set already resident. Rootless podman cannot load a module whatever the
-# capability says, so the modules have to be on the host already.
+# unreachable from the host. NET_ADMIN drives iptables and ipset; NET_RAW is
+# what an `-m set` match needs, and without it ipset keeps working while every
+# rule referencing a set fails to install. ./tests/check-netfilter.sh answers
+# whether a given machine grants both, and ./tests/load-modules.sh loads the set
+# types a container cannot load for itself.
 
 set -e
-
-# Named rather than probed: a missing module surfaces during the run as
-# "Can't open socket to ipset", which says nothing about what to do.
-MODULES="ip_set xt_set ip_set_hash_net ip_set_hash_netport ip_set_bitmap_port"
-missing=""
-for m in $MODULES; do
-	grep -qE "^${m//-/_} " /proc/modules || missing="$missing $m"
-done
-if [ -n "$missing" ]; then
-	# Not fatal: the kernel autoloads these on first use where it is allowed to,
-	# which is the common case for a root-capable container. Named here because
-	# the failure they cause otherwise reads as "Can't open socket to ipset".
-	echo "note: kernel modules not currently loaded:$missing" 1>&2
-	echo "note: if the run fails reaching ipset, load them: sudo modprobe$missing" 1>&2
-fi
 
 if command -v podman >/dev/null; then
 	CONTAINER_CMD=podman

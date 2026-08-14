@@ -37,18 +37,7 @@ jobs:
     - uses: actions/checkout@v7
 
     - name: Check every script parses
-      run: |
-        for f in fw_reload subcommands/* scripts/* tests/*.sh; do
-          head -1 "$f" | grep -q '^#!.*sh' || continue
-          bash -n "$f" || exit 1
-        done
-
-    - name: Shellcheck
-      run: |
-        sudo apt-get update -qq
-        sudo apt-get install -y -qq shellcheck
-        # Informational: the tree predates shellcheck and is not clean yet.
-        shellcheck -S error fw_reload subcommands/* tests/*.sh || true
+      run: ./tests/check-shell-syntax.sh
 
   integration:
     name: Integration (${{ matrix.image }})
@@ -64,34 +53,17 @@ jobs:
     steps:
     - uses: actions/checkout@v7
 
-    - uses: dtolnay/rust-toolchain@stable
-
-    # Built on the runner rather than in a container: the helper only has to
-    # run in the test image, and the runner's glibc is no older than it.
+    # Built the way the package builds it, in a bullseye container: a helper
+    # compiled against the runner's glibc will not run on an older image, and
+    # every test then fails for a reason that has nothing to do with the code.
     - name: Build the helper
-      run: |
-        cargo build --release
-        install -m 755 target/release/cfw-build cfw-build
+      run: ./build-helper.sh x86_64
 
-    # A container cannot load these, and the kernel only autoloads a set type
-    # on first use by a process allowed to. Without them the run fails late and
-    # obscurely: the BASH path builds no sets at all, and the helper aborts.
     - name: Load the ipset modules the fixture needs
-      run: sudo modprobe ip_set ip_set_hash_net ip_set_hash_netport ip_set_bitmap_port xt_set
+      run: ./tests/load-modules.sh
 
-    # NET_ADMIN drives iptables and ipset; without NET_RAW an `-m set` match
-    # cannot reach the ipset subsystem and every rule using an alias fails to
-    # install. Whether a runner grants them is what this job answers.
-    - name: Report the runner's netfilter capability
-      run: |
-        docker run --rm --cap-add=NET_ADMIN --cap-add=NET_RAW ${{ matrix.image }} sh -c '
-          apt-get update -qq >/dev/null 2>&1
-          apt-get install -y -qq iptables ipset >/dev/null 2>&1
-          ipset create probe hash:net family inet || exit 1
-          iptables -t filter -N PROBE || exit 1
-          iptables -t filter -A PROBE -m set --match-set probe src -j ACCEPT || exit 1
-          echo "set matches work here"
-        '
+    - name: Report whether set matches work here
+      run: ./tests/check-netfilter.sh ${{ matrix.image }}
 
     - name: Run the integration tests
       env:
