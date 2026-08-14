@@ -69,7 +69,7 @@ fn endpoint(
     direction: &str,
     family: Family,
     sets: &Sets,
-    prefix: &str,
+    set_prefix: &str,
 ) -> Option<Option<String>> {
     match classify(address) {
         Host::Any => Some(None),
@@ -87,7 +87,7 @@ fn endpoint(
             let set = sets.get(&name, family)?;
             let dirs = vec![direction; set.set_type.dimensions()].join(",");
             Some(Some(format!(
-                "-m set --match-set {prefix}{} {dirs}",
+                "-m set --match-set {set_prefix}{} {dirs}",
                 set.name
             )))
         }
@@ -130,13 +130,17 @@ fn rewrite_targets(tail: &[String], prefix: &str) -> Vec<String> {
     out
 }
 
-/// Build both families' rulesets. `prefix` is the CFWTMP_ chain/set prefix.
+/// Build both families' rulesets.
+///
+/// Chains and sets carry different prefixes: a chain is renamed at commit, a
+/// set is versioned, so a rule must name the set it will match after commit.
 pub fn build(
     decls: &[Decl],
     sets: &Sets,
     resolved: &Resolved,
     prefix: &str,
-    families_for: &mut dyn FnMut(&[String]) -> Vec<Family>,
+    set_prefix: &str,
+    families_for: &mut dyn FnMut(&str, &[String]) -> Vec<Family>,
 ) -> Result<BTreeMap<Family, Ruleset>, BuildError> {
     let mut out: BTreeMap<Family, Ruleset> = BTreeMap::new();
 
@@ -146,7 +150,7 @@ pub fn build(
         };
 
         let chain = chain_name(chain, origin)?;
-        let families = families_for(&probe_tail(tail));
+        let families = families_for(table, &probe_tail(tail));
         let tail = rewrite_targets(tail, prefix);
 
         for family in families {
@@ -157,10 +161,10 @@ pub fn build(
 
             for src_one in &src_variants {
                 for dst_one in &dst_variants {
-                    let Some(src_args) = endpoint(src_one, "src", family, sets, prefix) else {
+                    let Some(src_args) = endpoint(src_one, "src", family, sets, set_prefix) else {
                         continue;
                     };
-                    let Some(dst_args) = endpoint(dst_one, "dst", family, sets, prefix) else {
+                    let Some(dst_args) = endpoint(dst_one, "dst", family, sets, set_prefix) else {
                         continue;
                     };
 
@@ -254,14 +258,14 @@ mod tests {
     }
 
     /// Both families accept everything, as when probing is unavailable.
-    fn both(_: &[String]) -> Vec<Family> {
+    fn both(_: &str, _: &[String]) -> Vec<Family> {
         vec![Family::V4, Family::V6]
     }
 
     fn build_all(input: &str, r: &Resolved) -> BTreeMap<Family, Ruleset> {
         let decls = parse(input).unwrap();
         let s = sets::build(&decls, r).unwrap();
-        build(&decls, &s, r, "CFWTMP_", &mut both).unwrap()
+        build(&decls, &s, r, "CFWTMP_", "CFW_N_", &mut both).unwrap()
     }
 
     #[test]
@@ -297,14 +301,41 @@ mod tests {
     }
 
     #[test]
+    fn the_probe_is_asked_about_the_rules_own_table() {
+        let input = rec(&["rule", "30_cadev.sh", "192", "nat", "prerouting", "any", "any",
+                          "-p", "tcp", "--dport", "25", "-j", "REDIRECT"]);
+        let decls = parse(&input).unwrap();
+        let s = sets::build(&decls, &resolved(&[])).unwrap();
+        let mut seen = Vec::new();
+        let out = build(&decls, &s, &resolved(&[]), "CFWTMP_", "CFW_N_", &mut |table, _| {
+            seen.push(table.to_string());
+            vec![Family::V4]
+        })
+        .unwrap();
+        assert_eq!(seen, ["nat"]);
+        assert!(out[&Family::V4].tables["nat"].chains.contains_key("30_cadev+prerouting"));
+    }
+
+    #[test]
+    fn a_set_match_names_the_set_prefix_not_the_chain_prefix() {
+        let input = rec(&["alias", "a.sh", "1", "svc", "10.0.0.0/8"])
+            + &rec(&["rule", "10_x.sh", "2", "filter", "forward", "svc", "any", "-j", "+reject"]);
+        let out = build_all(&input, &resolved(&[]));
+        let text = render(&out[&Family::V4], "CFWTMP_");
+        // The chain is renamed at commit, the set is not.
+        assert!(text.contains("--match-set CFW_N_svc src"), "{text}");
+        assert!(text.contains("-j CFWTMP_+reject"), "{text}");
+    }
+
+    #[test]
     fn alias_endpoint_emits_matching_direction_count() {
         let input = rec(&["alias", "a.sh", "1", "plain", "10.0.0.0/8"])
             + &rec(&["alias", "a.sh", "2", "ported", "10.0.0.0/8", "53", "udp"])
             + &rec(&["rule", "10_x.sh", "3", "filter", "forward", "plain", "ported", "-j", "ACCEPT"]);
         let out = build_all(&input, &resolved(&[]));
         let text = render(&out[&Family::V4], "CFWTMP_");
-        assert!(text.contains("--match-set CFWTMP_plain src "), "{text}");
-        assert!(text.contains("--match-set CFWTMP_ported dst,dst "), "{text}");
+        assert!(text.contains("--match-set CFW_N_plain src "), "{text}");
+        assert!(text.contains("--match-set CFW_N_ported dst,dst "), "{text}");
     }
 
     #[test]
@@ -379,7 +410,7 @@ mod tests {
                           "-p", "icmpv6", "--icmpv6-type", "echo-request", "-j", "DROP"]);
         let decls = parse(&input).unwrap();
         let s = sets::build(&decls, &resolved(&[])).unwrap();
-        let out = build(&decls, &s, &resolved(&[]), "CFWTMP_", &mut |_| vec![Family::V6]).unwrap();
+        let out = build(&decls, &s, &resolved(&[]), "CFWTMP_", "CFW_N_", &mut |_, _| vec![Family::V6]).unwrap();
         assert!(!out.contains_key(&Family::V4));
         assert_eq!(out[&Family::V6].tables["filter"].chains["50_log+forward"].len(), 1);
     }
@@ -395,7 +426,7 @@ mod tests {
         let input = rec(&["rule", "notnumbered.sh", "1", "filter", "forward", "any", "any", "-j", "ACCEPT"]);
         let decls = parse(&input).unwrap();
         let s = sets::build(&decls, &resolved(&[])).unwrap();
-        let e = build(&decls, &s, &resolved(&[]), "CFWTMP_", &mut both).unwrap_err();
+        let e = build(&decls, &s, &resolved(&[]), "CFWTMP_", "CFW_N_", &mut both).unwrap_err();
         assert!(e.message.contains("NN_name.sh"), "{}", e.message);
     }
 }
@@ -424,7 +455,7 @@ mod production_fixture {
         let r = Resolved { addrs };
 
         let s = sets::build(&decls, &r).unwrap();
-        let out = build(&decls, &s, &r, "CFWPRB_", &mut |_: &[String]| vec![Family::V4, Family::V6])
+        let out = build(&decls, &s, &r, "CFWPRB_", "CFWPRB_", &mut |_: &str, _: &[String]| vec![Family::V4, Family::V6])
             .expect("production rules must build");
 
         for (family, ruleset) in &out {

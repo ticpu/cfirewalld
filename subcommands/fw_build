@@ -32,6 +32,9 @@ collect 3> "$DECLS"
 
 debug "Collected `wc -l < "$DECLS"` declarations."
 
-$CFW_HELPER --prefix "$FWTMP" --cachedir "$CACHEDIR" 3< "$DECLS"
+# Chains and sets carry different prefixes: fw_commit renames chains, while
+# sets are versioned because they cannot be renamed alongside the rules that
+# match them. A rule built now must already name the committed set.
+$CFW_HELPER --prefix "$FWTMP" --set-prefix "$PREFIX_IPSET" --cachedir "$CACHEDIR" 3< "$DECLS"
 
 exit 0

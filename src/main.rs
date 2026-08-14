@@ -21,8 +21,11 @@ use sets::Family;
 const DECL_FD: i32 = 3;
 
 struct Config {
-    /// Prefix for chains and sets built by this run.
+    /// Prefix for chains built by this run; fw_commit renames these.
     prefix: String,
+    /// Prefix for sets. Versioned rather than renamed, so a rule must name the
+    /// committed set from the start.
+    set_prefix: String,
     /// Where to keep a copy of what was submitted.
     cachedir: Option<String>,
     debug: bool,
@@ -39,12 +42,14 @@ fn usage() -> ! {
 
 fn parse_args() -> Config {
     let mut prefix = None;
+    let mut set_prefix = None;
     let mut cachedir = None;
     let mut args = std::env::args().skip(1);
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--prefix" => prefix = args.next(),
+            "--set-prefix" => set_prefix = args.next(),
             "--cachedir" => cachedir = args.next(),
             _ => usage(),
         }
@@ -55,6 +60,7 @@ fn parse_args() -> Config {
 
     Config {
         prefix: prefix.unwrap_or_else(|| usage()),
+        set_prefix: set_prefix.unwrap_or_else(|| usage()),
         cachedir,
         debug,
     }
@@ -150,9 +156,14 @@ fn main() {
     debug(config.debug, &format!("built {} set(s)", sets.by_name.len()));
 
     let mut prober = Prober::new();
-    let built = rules::build(&decls, &sets, &resolved, &config.prefix, &mut |tail| {
-        prober.families_for(tail)
-    });
+    let built = rules::build(
+        &decls,
+        &sets,
+        &resolved,
+        &config.prefix,
+        &config.set_prefix,
+        &mut |table, tail| prober.families_for(table, tail),
+    );
     prober.cleanup();
 
     let built = match built {
@@ -166,7 +177,7 @@ fn main() {
     }
 
     // Everything is decided; only now does anything reach the kernel.
-    let set_stream = sets::render(&sets, &config.prefix);
+    let set_stream = sets::render(&sets, &config.set_prefix);
     record(&config.cachedir, "ipset.restore", &set_stream);
     debug(config.debug, &format!("ipset restore -! ({} lines)", set_stream.lines().count()));
     if let Err(e) = submit("ipset", &["restore", "-!"], &set_stream) {

@@ -4,7 +4,7 @@
 //! belonging to the other family is rejected, so this catches exactly what the
 //! shell's try-both caught, at one probe per distinct tail rather than per rule.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::process::Command;
 
 use crate::sets::Family;
@@ -14,8 +14,11 @@ use crate::sets::Family;
 const PROBE_CHAIN: &str = "CFWPROBE";
 
 pub struct Prober {
-    /// Keyed by the tail, so a tail repeated across rules is probed once.
-    cache: HashMap<Vec<String>, Vec<Family>>,
+    /// Keyed by table and tail: a target valid in one table is rejected in
+    /// another, so REDIRECT probed in filter would drop a nat rule entirely.
+    cache: HashMap<(String, Vec<String>), Vec<Family>>,
+    /// Tables the scratch chain has been created in.
+    prepared: HashSet<String>,
     /// Set when the scratch chain could not be created; every tail is then
     /// offered to both families, which is what the shell did.
     degraded: bool,
@@ -29,15 +32,26 @@ fn binary(family: Family) -> &'static str {
 }
 
 impl Prober {
-    /// Create the scratch chain in both families.
     pub fn new() -> Self {
-        let mut degraded = false;
+        Prober {
+            cache: HashMap::new(),
+            prepared: HashSet::new(),
+            degraded: false,
+        }
+    }
+
+    /// Create the scratch chain in one table, once per run.
+    fn prepare(&mut self, table: &str) {
+        if self.prepared.contains(table) {
+            return;
+        }
+        self.prepared.insert(table.to_string());
 
         for family in [Family::V4, Family::V6] {
             // Already existing is fine; anything else means probing is not
             // available and the caller falls back to offering both families.
             let status = Command::new(binary(family))
-                .args(["-t", "filter", "-N", PROBE_CHAIN])
+                .args(["-t", table, "-N", PROBE_CHAIN])
                 .status();
             match status {
                 Ok(s) if s.success() => {}
@@ -45,46 +59,44 @@ impl Prober {
                     // -N fails when the chain exists, which is harmless; flush
                     // it so a previous run's contents cannot confuse a probe.
                     let flushed = Command::new(binary(family))
-                        .args(["-t", "filter", "-F", PROBE_CHAIN])
+                        .args(["-t", table, "-F", PROBE_CHAIN])
                         .status();
                     if !matches!(flushed, Ok(s) if s.success()) {
-                        degraded = true;
+                        self.degraded = true;
                     }
                 }
                 Err(e) => {
                     eprintln!("cfw-build: cannot run {}: {e}", binary(family));
-                    degraded = true;
+                    self.degraded = true;
                 }
             }
         }
-
-        Prober {
-            cache: HashMap::new(),
-            degraded,
-        }
     }
 
-    /// Families whose binary accepts this tail.
-    pub fn families_for(&mut self, tail: &[String]) -> Vec<Family> {
+    /// Families whose binary accepts this tail in this table.
+    pub fn families_for(&mut self, table: &str, tail: &[String]) -> Vec<Family> {
+        let key = (table.to_string(), tail.to_vec());
+        if let Some(hit) = self.cache.get(&key) {
+            return hit.clone();
+        }
+
+        self.prepare(table);
         if self.degraded {
             return vec![Family::V4, Family::V6];
-        }
-        if let Some(hit) = self.cache.get(tail) {
-            return hit.clone();
         }
 
         let accepted: Vec<Family> = [Family::V4, Family::V6]
             .into_iter()
-            .filter(|f| self.accepts(*f, tail))
+            .filter(|f| self.accepts(*f, table, tail))
             .collect();
 
-        self.cache.insert(tail.to_vec(), accepted.clone());
+        self.cache.insert(key, accepted.clone());
         accepted
     }
 
-    fn accepts(&self, family: Family, tail: &[String]) -> bool {
+    fn accepts(&self, family: Family, table: &str, tail: &[String]) -> bool {
         let appended = Command::new(binary(family))
-            .args(["-t", "filter", "-A", PROBE_CHAIN])
+            .args(["-t", table, "-A", PROBE_CHAIN])
             .args(tail)
             .output();
 
@@ -92,7 +104,7 @@ impl Prober {
             Ok(out) if out.status.success() => {
                 // Leave the chain empty for the next probe.
                 let _ = Command::new(binary(family))
-                    .args(["-t", "filter", "-D", PROBE_CHAIN])
+                    .args(["-t", table, "-D", PROBE_CHAIN])
                     .args(tail)
                     .output();
                 true
@@ -105,19 +117,21 @@ impl Prober {
         }
     }
 
-    /// Remove the scratch chain from both families.
+    /// Remove the scratch chain from every table it was created in.
     pub fn cleanup(&self) {
-        for family in [Family::V4, Family::V6] {
-            for args in [["-F", PROBE_CHAIN], ["-X", PROBE_CHAIN]] {
-                if let Err(e) = Command::new(binary(family))
-                    .args(["-t", "filter"])
-                    .args(args)
-                    .status()
-                {
-                    eprintln!(
-                        "cfw-build: removing probe chain via {}: {e}",
-                        binary(family)
-                    );
+        for table in &self.prepared {
+            for family in [Family::V4, Family::V6] {
+                for args in [["-F", PROBE_CHAIN], ["-X", PROBE_CHAIN]] {
+                    if let Err(e) = Command::new(binary(family))
+                        .args(["-t", table])
+                        .args(args)
+                        .status()
+                    {
+                        eprintln!(
+                            "cfw-build: removing probe chain via {}: {e}",
+                            binary(family)
+                        );
+                    }
                 }
             }
         }
@@ -138,16 +152,16 @@ mod tests {
             .iter()
             .map(|s| s.to_string())
             .collect();
-        assert_eq!(p.families_for(&v6_only), vec![Family::V6]);
+        assert_eq!(p.families_for("filter", &v6_only), vec![Family::V6]);
 
         let v4_only: Vec<String> = ["-p", "icmp", "--icmp-type", "echo-request", "-j", "DROP"]
             .iter()
             .map(|s| s.to_string())
             .collect();
-        assert_eq!(p.families_for(&v4_only), vec![Family::V4]);
+        assert_eq!(p.families_for("filter", &v4_only), vec![Family::V4]);
 
         let both: Vec<String> = ["-p", "tcp", "-j", "ACCEPT"].iter().map(|s| s.to_string()).collect();
-        assert_eq!(p.families_for(&both), vec![Family::V4, Family::V6]);
+        assert_eq!(p.families_for("filter", &both), vec![Family::V4, Family::V6]);
 
         p.cleanup();
     }
