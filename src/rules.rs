@@ -276,7 +276,7 @@ mod tests {
 
     fn build_all(input: &str, r: &Resolved) -> BTreeMap<Family, Ruleset> {
         let decls = parse(input).unwrap();
-        let s = sets::build(&decls, r).unwrap();
+        let s = sets::build(&decls, r, "CFW_N_").unwrap();
         build(&decls, &s, r, "CFWTMP_", "CFW_N_", &mut both).unwrap()
     }
 
@@ -383,7 +383,7 @@ mod tests {
             "REDIRECT",
         ]);
         let decls = parse(&input).unwrap();
-        let s = sets::build(&decls, &resolved(&[])).unwrap();
+        let s = sets::build(&decls, &resolved(&[]), "CFW_N_").unwrap();
         let mut seen = Vec::new();
         let out = build(
             &decls,
@@ -593,7 +593,7 @@ mod tests {
             "DROP",
         ]);
         let decls = parse(&input).unwrap();
-        let s = sets::build(&decls, &resolved(&[])).unwrap();
+        let s = sets::build(&decls, &resolved(&[]), "CFW_N_").unwrap();
         let out = build(
             &decls,
             &s,
@@ -633,7 +633,7 @@ mod tests {
             "ACCEPT",
         ]);
         let decls = parse(&input).unwrap();
-        let s = sets::build(&decls, &resolved(&[])).unwrap();
+        let s = sets::build(&decls, &resolved(&[]), "CFW_N_").unwrap();
         let e = build(&decls, &s, &resolved(&[]), "CFWTMP_", "CFW_N_", &mut both).unwrap_err();
         assert!(e.message.contains("NN_name.sh"), "{}", e.message);
     }
@@ -662,7 +662,7 @@ mod production_fixture {
         }
         let r = Resolved { addrs };
 
-        let s = sets::build(&decls, &r).unwrap();
+        let s = sets::build(&decls, &r, "CFWPRB_").unwrap();
         let out = build(
             &decls,
             &s,

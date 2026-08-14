@@ -23,6 +23,10 @@ progress: `docs/plan-1.4.md`.
   generated name currently reaches 27, so the prefix has almost no slack — a
   longer prefix or a longer config filename overflows it. Test prefixes must be
   the same length as the real one or the limit is hit spuriously.
+- ipset names cap at 31, and a set name carries the version prefix and, for the
+  v6 half, a `_v6` suffix. That leaves an alias 20 characters at the current
+  version, one fewer per tenfold version increase. The helper rejects an
+  over-long alias by name rather than letting the restore stream fail.
 
 ## Traps
 

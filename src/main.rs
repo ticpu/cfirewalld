@@ -155,7 +155,7 @@ fn main() {
         }
     };
 
-    let sets = match sets::build(&decls, &resolved) {
+    let sets = match sets::build(&decls, &resolved, &config.set_prefix) {
         Ok(s) => s,
         Err(e) => die(&e.message),
     };

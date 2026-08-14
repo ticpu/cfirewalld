@@ -138,6 +138,33 @@ pub struct BuildError {
     pub message: String,
 }
 
+/// ipset refuses a name over this length. The budget an alias actually gets is
+/// smaller: the versioned prefix grows a character every tenfold increase, and
+/// the v6 half of a pair carries a suffix.
+const IPSET_NAME_MAX: usize = 31;
+
+/// Reject a name ipset will refuse, naming the alias rather than letting the
+/// restore stream fail partway with the assembled name.
+fn check_name_length(
+    alias: &str,
+    prefix: &str,
+    origin: &crate::decl::Origin,
+) -> Result<(), BuildError> {
+    // The v6 suffix is what makes the pair's longer half; check that one.
+    let longest = format!("{prefix}{alias}_v6").len();
+    if longest > IPSET_NAME_MAX {
+        return Err(BuildError {
+            message: format!(
+                "alias {alias} at {origin}: {longest} characters with the set prefix and the v6 \
+                 suffix, over ipset's limit of {IPSET_NAME_MAX} — shorten the alias by {} \
+                 character(s)",
+                longest - IPSET_NAME_MAX
+            ),
+        });
+    }
+    Ok(())
+}
+
 fn mixed(name: &str, origin: &crate::decl::Origin, had: SetType, got: SetType) -> BuildError {
     BuildError {
         message: format!(
@@ -148,7 +175,10 @@ fn mixed(name: &str, origin: &crate::decl::Origin, had: SetType, got: SetType) -
 }
 
 /// Build every set from the alias declarations and the resolved names.
-pub fn build(decls: &[Decl], resolved: &Resolved) -> Result<Sets, BuildError> {
+///
+/// `prefix` is only used to reject a name ipset would refuse; it is applied at
+/// render time, not stored.
+pub fn build(decls: &[Decl], resolved: &Resolved, prefix: &str) -> Result<Sets, BuildError> {
     let mut sets = Sets::default();
 
     for decl in decls {
@@ -162,6 +192,8 @@ pub fn build(decls: &[Decl], resolved: &Resolved) -> Result<Sets, BuildError> {
         else {
             continue;
         };
+
+        check_name_length(name, prefix, origin)?;
 
         let port_field = port.as_ref().map(|p| port_spec(p, proto.as_deref()));
 
@@ -263,7 +295,7 @@ mod tests {
     }
 
     fn build_from(input: &str, r: &Resolved) -> Sets {
-        build(&parse(input).unwrap(), r).unwrap()
+        build(&parse(input).unwrap(), r, "CFW_N_").unwrap()
     }
 
     #[test]
@@ -365,9 +397,30 @@ mod tests {
     }
 
     #[test]
+    fn an_alias_too_long_for_ipset_is_rejected_by_name() {
+        // 21 characters: with "CFW_102_" and "_v6" that is 32, one over.
+        let input = rec(&["alias", "a.sh", "1", "a-quite-long-alias-nm", "10.0.0.1"]);
+        let e = build(&parse(&input).unwrap(), &resolved(&[]), "CFW_102_").unwrap_err();
+        assert!(
+            e.message.contains("shorten the alias by 1"),
+            "{}",
+            e.message
+        );
+    }
+
+    #[test]
+    fn the_budget_shrinks_as_the_version_grows() {
+        // The same alias fits under a shorter prefix and not under a longer one.
+        let input = rec(&["alias", "a.sh", "1", "twenty-char-alias-nm", "10.0.0.1"]);
+        let decls = parse(&input).unwrap();
+        assert!(build(&decls, &resolved(&[]), "CFW_102_").is_ok());
+        assert!(build(&decls, &resolved(&[]), "CFW_10200_").is_err());
+    }
+
+    #[test]
     fn any_without_a_port_is_rejected() {
         let input = rec(&["alias", "a.sh", "1", "bad", "any"]);
-        let e = build(&parse(&input).unwrap(), &resolved(&[])).unwrap_err();
+        let e = build(&parse(&input).unwrap(), &resolved(&[]), "CFW_N_").unwrap_err();
         assert!(e.message.contains("needs a port"));
     }
 
@@ -389,7 +442,7 @@ mod tests {
     fn mixing_ported_and_unported_in_one_alias_is_rejected() {
         let input = rec(&["alias", "a.sh", "1", "svc", "10.0.0.1", "53", "udp"])
             + &rec(&["alias", "a.sh", "2", "svc", "10.0.0.2"]);
-        let e = build(&parse(&input).unwrap(), &resolved(&[])).unwrap_err();
+        let e = build(&parse(&input).unwrap(), &resolved(&[]), "CFW_N_").unwrap_err();
         assert!(
             e.message.contains("all ported or all unported"),
             "{}",
@@ -430,7 +483,8 @@ mod production_fixture {
             );
         }
 
-        let sets = build(&decls, &Resolved { addrs }).expect("production config must build");
+        let sets =
+            build(&decls, &Resolved { addrs }, "CFWPRB_").expect("production config must build");
         let out = render(&sets, "CFWPRB_");
         std::fs::write("scratch/ipset-restore-b2e9.txt", &out).unwrap();
         println!("{} sets, {} lines", sets.by_name.len(), out.lines().count());

@@ -106,20 +106,30 @@ fw_prepare_zones
 # Apply new zones
 fw_apply
 
-[ -f $FAIL ] && { echo "Firewall has failed to apply." 1>&2; exit 1; }
+if [ -f "$FAIL" ]; then
+	echo "Firewall has failed to apply." 1>&2
+	exit 1
+fi
 
 iptables-save > /var/lib/cfirewalld/iptables.rules
 ip6tables-save > /var/lib/cfirewalld/ip6tables.rules
 ipset save > /var/lib/cfirewalld/ipset.list
 
 shopt -s nullglob
-[ -d post-run.d/ ] && for F in post-run.d/*.sh
-do
-	if [ $TRACE -eq 1 ]; then
-		bash -x -E $F
-	else
-		bash -E $F
-	fi
-done
+if [ -d post-run.d/ ]; then
+	for F in post-run.d/*.sh
+	do
+		if [ $TRACE -eq 1 ]; then
+			bash -x -E $F
+		else
+			bash -E $F
+		fi
+	done
+fi
+
+# The firewall is applied and committed by this point; a post-run script that
+# declines its own prompt, or a host with no post-run.d at all, must not make
+# the reload look like it failed.
+exit 0
 
 exit 0
