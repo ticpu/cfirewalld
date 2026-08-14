@@ -1,5 +1,7 @@
 # cfirewalld
 
+[![CI](https://github.com/ticpu/cfirewalld/actions/workflows/ci.yml/badge.svg)](https://github.com/ticpu/cfirewalld/actions/workflows/ci.yml)
+
 This BASH based firewall was invented with 3 main things in mind.
 * Be able to resolve DNS correctly and, in the future, automatically update
   those entry for internal DNS servers like pfSense.

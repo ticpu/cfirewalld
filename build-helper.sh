@@ -25,13 +25,19 @@ esac
 
 IMG="cfirewalld-build:${TARGET}"
 
+# .containerignore keeps the context to Cargo.toml, Cargo.lock when one exists,
+# and src/ — the repo root otherwise ships target/ and the cached VM image.
 $CONTAINER_CMD build -f Containerfile --build-arg "TARGET=$TARGET" -t "$IMG" .
 CONTAINER=$($CONTAINER_CMD create "$IMG")
 # Suffixed for cross-builds; the package installs the unsuffixed name.
 $CONTAINER_CMD cp "$CONTAINER:/app/cfw-build" "cfw-build.$SUFFIX"
+$CONTAINER_CMD cp "$CONTAINER:/app/glibc-floor" glibc-floor
 $CONTAINER_CMD rm "$CONTAINER"
 $CONTAINER_CMD image rm "$IMG"
 
 cp "cfw-build.$SUFFIX" cfw-build
 
-echo "Built cfw-build.$SUFFIX"
+# Reported on every build: a floor above the oldest supported release installs
+# cleanly and then fails at exec, which is a hard failure to read.
+echo "Built cfw-build.$SUFFIX (glibc floor $(cat glibc-floor))"
+rm -f glibc-floor
