@@ -18,6 +18,16 @@ However, after adding many sanity test, it ended using much more compli-
 cated BASH-only features which would be better represented in a fully-featured
 programming language. Also, using iptables library would help speed very much.
 
+## Requirements
+
+iptables 1.8 or later, ipset, dig, sudo and systemd. Either iptables backend
+works; the nf_tables one is what 1.4 is tested against.
+
+From 1.4 the build phase runs in a Rust helper, so building the package needs a
+Rust toolchain. The package remains `Architecture: any` and builds wherever Rust
+does. Where the helper is missing, or when `CFW_HELPER=0` is set in `fw_vars`,
+`fw_reload` falls back to the BASH implementation, which stays supported.
+
 ## TODO
 - [x] Basic functionnality.
 - [ ] Automatic name resolve as system service.

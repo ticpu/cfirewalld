@@ -1,1 +1,4 @@
 firewall.d/
+/target/
+/Cargo.lock
+/scratch/

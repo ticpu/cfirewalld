@@ -4,11 +4,11 @@ Section: misc
 Priority: optional
 Standards-Version: 3.9.7
 Vcs-Git: git://github.com/ticpu/cfirewalld
-Build-Depends: debhelper (>= 9)
+Build-Depends: debhelper (>= 9), cargo, rustc
 
 Package: cfirewalld
 Architecture: any
-Depends: dnsutils, ipset, iptables, sudo, systemd,
+Depends: dnsutils, ipset, iptables (>= 1.8), sudo, systemd,
  ${misc:Depends}
 Suggests: conntrack, conntrackd
 Description: Bash based firewall.

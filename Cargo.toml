@@ -1,0 +1,13 @@
+[package]
+name = "cfw-build"
+version = "1.4.0"
+edition = "2021"
+authors = ["Jérôme Poulin <jeromepoulin@gmail.com>"]
+license = "GPL-3.0-only"
+description = "Build phase for cfirewalld: resolves aliases and emits ipset/iptables restore streams"
+repository = "https://github.com/ticpu/cfirewalld"
+
+[dependencies]
+
+[profile.release]
+strip = true
