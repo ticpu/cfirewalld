@@ -42,13 +42,6 @@ pub struct BuildError {
     pub message: String,
 }
 
-/// One emitted rule: the argument text after `-A CHAIN`.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Emitted {
-    pub chain: String,
-    pub args: String,
-}
-
 /// Rules for one family, grouped by table then chain, in declaration order.
 #[derive(Debug, Default)]
 pub struct Table {

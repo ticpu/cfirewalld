@@ -62,15 +62,20 @@ fi
 # Remove all FWTMP_ sets and chains.
 fw_cleanup
 
-# Load all firewall scripts.
-for F in firewall.d/*.sh
-do
-	if [ $TRACE -eq 1 ]; then
-		bash -x -E $F
-	else
-		bash -E $F
-	fi
-done
+# Build the new ruleset, through the helper when it is available.
+if [ "$CFW_HELPER" != "0" ] && [ -x "$CFW_HELPER" ]; then
+	fw_build
+else
+	# Load all firewall scripts.
+	for F in firewall.d/*.sh
+	do
+		if [ $TRACE -eq 1 ]; then
+			bash -x -E $F
+		else
+			bash -E $F
+		fi
+	done
+fi
 
 # Prepare zones
 fw_prepare_zones

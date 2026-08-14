@@ -37,6 +37,9 @@ if [ -z "${VARS_SOURCED-}" ]; then
 	# Runtime
 	export RUNDIR=/run/${_NAME}
 	export IPSET_PREFIX_FILE=$RUNDIR/ipset_prefix
+
+	# Build helper. Set CFW_HELPER=0 to force the BASH build path.
+	export CFW_HELPER="${CFW_HELPER-/usr/lib/cfirewalld/cfw-build}"
 fi
 
 . /etc/cfirewalld/fw_vars

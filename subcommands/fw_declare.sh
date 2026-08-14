@@ -6,6 +6,9 @@
 # printf is a builtin, so a declaration costs no process. Fields are NUL
 # separated because rule tails contain spaces, quotes and '#'.
 
+# Tells fw_common.sh not to install the shell's own fw_rule over these.
+export CFW_DECLARING=1
+
 # Emit one record on fd 3. $1 is the kind, the rest are its fields.
 _fw_declare () {
 	local kind="$1"; shift

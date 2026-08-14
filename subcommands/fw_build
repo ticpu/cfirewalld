@@ -1,0 +1,37 @@
+#!/bin/bash
+#
+# Run the config files through the build helper.
+#
+# All files share one fd 3 so the helper sees the whole config before anything
+# reaches the kernel: a chain fed by several files must be emitted in one piece,
+# and a name that fails to resolve has to stop the run before it does.
+
+source fw_common.sh
+
+# Define proper usage.
+if [ ! -z ${1-} ]; then
+	_fw_usage "
+	No arguments needed, builds the firewall from firewall.d/*.sh."
+fi
+
+# Declarations are collected first so a config file that fails does so before
+# the helper starts, and its error is not mixed into the helper's own.
+DECLS="$CACHEDIR/declarations"
+
+collect () {
+	source subcommands/fw_declare.sh
+
+	local F
+	for F in firewall.d/*.sh
+	do
+		source "$F"
+	done
+}
+
+collect 3> "$DECLS"
+
+debug "Collected `wc -l < "$DECLS"` declarations."
+
+$CFW_HELPER --prefix "$FWTMP" --cachedir "$CACHEDIR" 3< "$DECLS"
+
+exit 0

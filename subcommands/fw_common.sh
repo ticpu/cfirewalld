@@ -80,10 +80,14 @@ get_chains () {
 	sed -r -n -e "s/^:(${1}[^ ]+) .*/\1/p"
 }
 
-# Wrapper for _fw_rule
-fw_rule () {
-	_fw_rule "$0" "$@"
-}
+# Wrapper for _fw_rule.
+# Config files source this file, so it must not displace the declaration
+# emitters when the build helper has already installed them.
+if [ -z "${CFW_DECLARING-}" ]; then
+	fw_rule () {
+		_fw_rule "$0" "$@"
+	}
+fi
 
 # Run a command each iptables table.
 # Sets ipt_cur_table to the current table.
