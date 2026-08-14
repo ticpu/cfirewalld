@@ -1,7 +1,9 @@
-FROM docker.io/library/debian:bookworm-slim
+ARG BASE=docker.io/library/debian:bookworm-slim
+FROM ${BASE}
 
 # ipset and iptables are what the firewall drives; dnsutils supplies dig for the
-# BASH path. No DNS server is reachable, so tests use literals and the stub.
+# BASH path, and sudo is checked for at startup. No DNS server is reachable, so
+# the fixture uses literals only.
 RUN apt-get update -qq \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
         bash iptables ipset dnsutils sudo \

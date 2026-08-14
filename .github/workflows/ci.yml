@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches:
+    - master
+    - ci-*
+  pull_request:
+    branches:
+    - master
+  workflow_dispatch:
+
+jobs:
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy, rustfmt
+
+    - name: Check formatting
+      run: cargo fmt -- --check
+
+    - name: Run clippy
+      run: cargo clippy --all-targets -- -D warnings
+
+    - name: Run tests
+      run: cargo test --release
+
+  shell:
+    name: Shell syntax
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Check every script parses
+      run: |
+        for f in fw_reload subcommands/* scripts/* tests/*.sh; do
+          head -1 "$f" | grep -q '^#!.*sh' || continue
+          bash -n "$f" || exit 1
+        done
+
+    - name: Shellcheck
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq shellcheck
+        # Informational: the tree predates shellcheck and is not clean yet.
+        shellcheck -S error fw_reload subcommands/* tests/*.sh || true
+
+  integration:
+    name: Integration (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+        - debian:bookworm-slim
+        - debian:trixie-slim
+        - ubuntu:22.04
+        - ubuntu:24.04
+    steps:
+    - uses: actions/checkout@v7
+
+    - uses: dtolnay/rust-toolchain@stable
+
+    # Built on the runner rather than in a container: the helper only has to
+    # run in the test image, and the runner's glibc is no older than it.
+    - name: Build the helper
+      run: |
+        cargo build --release
+        install -m 755 target/release/cfw-build cfw-build
+
+    # NET_ADMIN drives iptables and ipset; without NET_RAW an `-m set` match
+    # cannot reach the ipset subsystem and every rule using an alias fails to
+    # install. Whether a runner grants them is what this job answers.
+    - name: Report the runner's netfilter capability
+      run: |
+        docker run --rm --cap-add=NET_ADMIN --cap-add=NET_RAW ${{ matrix.image }} sh -c '
+          apt-get update -qq >/dev/null 2>&1
+          apt-get install -y -qq iptables ipset >/dev/null 2>&1
+          ipset create probe hash:net family inet || exit 1
+          iptables -t filter -N PROBE || exit 1
+          iptables -t filter -A PROBE -m set --match-set probe src -j ACCEPT || exit 1
+          echo "set matches work here"
+        '
+
+    - name: Run the integration tests
+      env:
+        CFW_TEST_IMAGE: ${{ matrix.image }}
+      run: ./tests/integration.sh
+
+    - name: Keep the artifacts of a failed run
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: integration-${{ strategy.job-index }}
+        path: tests/out/
+        retention-days: 7
