@@ -18,9 +18,11 @@ for m in $MODULES; do
 	grep -qE "^${m//-/_} " /proc/modules || missing="$missing $m"
 done
 if [ -n "$missing" ]; then
-	echo "Kernel modules not loaded:$missing" 1>&2
-	echo "A rootless container cannot load them. Run: sudo modprobe$missing" 1>&2
-	exit 1
+	# Not fatal: the kernel autoloads these on first use where it is allowed to,
+	# which is the common case for a root-capable container. Named here because
+	# the failure they cause otherwise reads as "Can't open socket to ipset".
+	echo "note: kernel modules not currently loaded:$missing" 1>&2
+	echo "note: if the run fails reaching ipset, load them: sudo modprobe$missing" 1>&2
 fi
 
 if command -v podman >/dev/null; then
@@ -39,8 +41,11 @@ if [ ! -x cfw-build ]; then
 	exit 1
 fi
 
-IMG=cfirewalld-test:latest
-$CONTAINER_CMD build -q -f tests/Containerfile -t "$IMG" tests/ >/dev/null
+# The base image is selectable so CI can run the same tests across the
+# distributions the package targets.
+BASE="${CFW_TEST_IMAGE:-docker.io/library/debian:bookworm-slim}"
+IMG="cfirewalld-test:$(echo "$BASE" | tr '/:' '--')"
+$CONTAINER_CMD build -q --build-arg "BASE=$BASE" -f tests/Containerfile -t "$IMG" tests/ >/dev/null
 
 # The source tree is mounted rather than copied so a test run needs no rebuild
 # of the image, and :ro keeps a test from editing the checkout. Only the
