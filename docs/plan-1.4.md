@@ -104,7 +104,11 @@ From `/etc/cfirewalld/firewall.d/` on cadevrtr1:
 5. `iptables-restore` emitter, grouped by chain.
 6. `fw_rule` / `fw_alias_*` become shell functions writing to fd 3; `fw_reload`
    prefers the helper, falls back to bash when absent or when `CFW_HELPER=0`.
-7. Validate on cadevrtr1: same host, same config, flip `CFW_HELPER`, diff
+   Done, installed on cadevrtr1 from the package.
+7. Clean up the config's dead DNS names — 24 of them, reported with file and
+   line by a reload. Blocks step 8: sets and rules cannot be exercised until
+   resolution passes.
+8. Validate on cadevrtr1: same host, same config, flip `CFW_HELPER`, diff
    `iptables-save` and `ipset save`.
 
 ## Accepted divergence
@@ -113,6 +117,17 @@ Bare-FQDN rule endpoints are resolved by the helper instead of by iptables, so o
 declaration may expand into a different number of rules than before. Validation
 expects differences only in those rules, and checks each expansion against the
 addresses iptables would have produced.
+
+## Found in production
+
+The config carries 24 alias hostnames that no longer resolve, across three
+files. 1.3 created no set for them and said nothing, so a rule referencing one
+failed later with `set CFWTMP_… not found` — and an alias no rule referenced
+failed invisibly. This is the accumulation the abort exists to stop.
+
+`fw_reload` leaked one `tail -f` per run: the kill sat after the apply step, so
+every rollback and abort left one following a deleted socket. Fixed in the exit
+trap.
 
 ## Deferred
 

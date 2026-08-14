@@ -77,6 +77,11 @@ The failure must name the alias and the hostname. Reporting it downstream, as a 
 referring to a set that was never created, sends the reader hunting through the
 ruleset for a DNS problem.
 
+A name that yields no address aborts the run, including one no rule references.
+Tolerating it is what lets dead entries accumulate: nothing downstream notices an
+alias that simply has no set, so the config rots until some later rule depends on
+one.
+
 ## Set construction is concurrent, rule construction is ordered
 
 Sets are independent of each other and their cost is DNS latency, so they are built
