@@ -26,6 +26,12 @@ progress: `docs/plan-1.4.md`.
 
 ## Traps
 
+- Always build the helper with `./build-helper.sh`, never a bare `cargo build`.
+  The container pins the glibc floor at 2.30; a natively built one carries the
+  build machine's, and refuses to start on anything older. `objdump -T cfw-build
+  | grep -oE 'GLIBC_[0-9.]+' | sort -uV | tail -1` shows the floor.
+- Integration tests need `NET_ADMIN` **and** `NET_RAW`. With only the first,
+  ipset works and every rule referencing a set silently fails to install.
 - Alias names must not contain `.` or `:` — `alias_to_iptables` (`_fw_rule:70`)
   uses those to tell a literal address from an alias. A rule endpoint containing a
   dot is handed to iptables as a hostname for it to resolve.
