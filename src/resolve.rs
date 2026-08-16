@@ -113,6 +113,14 @@ async fn lookup(resolver: &TokioResolver, name: &str) -> Result<Vec<IpAddr>, Net
     }
 }
 
+/// An underscore cannot appear in a hostname, so a name carrying one reached
+/// DNS only because no alias declares it: a renamed or misspelt reference. The
+/// resolver would refuse it with a complaint about label syntax that names
+/// neither the alias nor the file it came from.
+fn is_undeclared_alias(name: &str) -> bool {
+    name.contains('_')
+}
+
 /// Resolve every name concurrently. Returns all failures rather than the first,
 /// so one run reports every broken name instead of one per re-run.
 pub async fn resolve_all(names: &BTreeMap<String, Vec<Usage>>) -> Result<Resolved, Vec<String>> {
@@ -122,9 +130,12 @@ pub async fn resolve_all(names: &BTreeMap<String, Vec<Usage>>) -> Result<Resolve
         Err(e) => return Err(vec![format!("reading resolver configuration: {e}")]),
     };
 
+    let (undeclared, resolvable): (Vec<&String>, Vec<&String>) =
+        names.keys().partition(|name| is_undeclared_alias(name));
+
     let results = futures::future::join_all(
-        names
-            .keys()
+        resolvable
+            .into_iter()
             .map(|name| async { (name.clone(), lookup(&resolver, name).await) }),
     )
     .await;
@@ -134,6 +145,19 @@ pub async fn resolve_all(names: &BTreeMap<String, Vec<Usage>>) -> Result<Resolve
     // config files do: cleaning up a run's worth of dead names is one pass
     // through the files rather than one reload per name.
     let mut failures: BTreeMap<(String, u32), Vec<String>> = BTreeMap::new();
+
+    let mut record = |name: &str, reason: &str| {
+        for usage in names.get(name).map(Vec::as_slice).unwrap_or_default() {
+            failures
+                .entry((usage.origin.file.clone(), usage.origin.line))
+                .or_default()
+                .push(format!("{} ({}): {reason}", name, usage.context));
+        }
+    };
+
+    for name in undeclared {
+        record(name, "no alias of this name is declared");
+    }
 
     for (name, result) in results {
         let reason = match result {
@@ -145,12 +169,7 @@ pub async fn resolve_all(names: &BTreeMap<String, Vec<Usage>>) -> Result<Resolve
             Err(e) => e.to_string(),
         };
 
-        for usage in names.get(&name).map(Vec::as_slice).unwrap_or_default() {
-            failures
-                .entry((usage.origin.file.clone(), usage.origin.line))
-                .or_default()
-                .push(format!("{} ({}): {reason}", name, usage.context));
-        }
+        record(&name, &reason);
     }
 
     if failures.is_empty() {
@@ -234,6 +253,14 @@ mod tests {
         assert_eq!(names.len(), 2);
         assert!(names.contains_key("host.example.test"));
         assert!(names.contains_key("other.example.test"));
+    }
+
+    #[test]
+    fn a_name_no_alias_declares_is_not_sent_to_dns() {
+        // A stale reference left behind by a rename: not a hostname, so it is
+        // reported against the config rather than as a resolver failure.
+        assert!(is_undeclared_alias("cc_lan_v6"));
+        assert!(!is_undeclared_alias("node1.example.test"));
     }
 
     #[test]
