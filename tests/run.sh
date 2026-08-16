@@ -23,10 +23,14 @@ pass () {
 }
 
 # Strip what legitimately differs between two runs: the ipset version prefix,
-# packet counters, and the random hash seed ipset assigns at creation.
+# packet counters, and the random hash seed ipset assigns at creation. A chain
+# declaration carries its counters in brackets, and traffic of the container's
+# own -- a stray multicast packet across a builtin chain -- lands there between
+# the two captures.
 normalise () {
 	sed -e 's/CFW_[0-9]\+_/CFW_N_/g' \
 	    -e 's/ packets [0-9]\+ bytes [0-9]\+//' \
+	    -e 's/^\(:[^ ]* [^ ]*\) \[[0-9]\+:[0-9]\+\]/\1 [0:0]/' \
 	    -e 's/ initval 0x[0-9a-f]*//' \
 	    -e '/^#/d'
 }
