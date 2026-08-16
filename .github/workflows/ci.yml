@@ -39,6 +39,9 @@ jobs:
     - name: Check every script parses
       run: ./tests/check-shell-syntax.sh
 
+    - name: Check Cargo.lock is not tracked on a branch
+      run: ./tests/check-no-lockfile.sh
+
   integration:
     name: Integration (${{ matrix.image }})
     runs-on: ubuntu-latest
