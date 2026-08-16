@@ -165,6 +165,24 @@ fn check_name_length(
     Ok(())
 }
 
+/// `_v6` is how the v6 half of every alias is named, in one namespace with the
+/// aliases themselves, so an alias spelled that way claims the v6 set of its own
+/// stem. Naming a v6-only alias for its family collides the same way as a stem
+/// that exists: both end up in one set holding both families' entries, which v4
+/// rules then match.
+fn check_name_suffix(alias: &str, origin: &crate::decl::Origin) -> Result<(), BuildError> {
+    if let Some(stem) = alias.strip_suffix("_v6") {
+        return Err(BuildError {
+            message: format!(
+                "alias {alias} at {origin}: _v6 is the suffix given to the v6 half of alias \
+                 {stem}, so it cannot be written by hand — name this one {stem}, which holds \
+                 whichever families its addresses belong to"
+            ),
+        });
+    }
+    Ok(())
+}
+
 fn mixed(name: &str, origin: &crate::decl::Origin, had: SetType, got: SetType) -> BuildError {
     BuildError {
         message: format!(
@@ -181,6 +199,32 @@ fn mixed(name: &str, origin: &crate::decl::Origin, had: SetType, got: SetType) -
 pub fn build(decls: &[Decl], resolved: &Resolved, prefix: &str) -> Result<Sets, BuildError> {
     let mut sets = Sets::default();
 
+    // Every unusable name at once: each costs a reload to discover otherwise,
+    // and on a remote host that is the whole diagnosis.
+    let mut rejected = Vec::new();
+    for decl in decls {
+        let Decl::Alias(Alias { name, origin, .. }) = decl else {
+            continue;
+        };
+        for check in [
+            check_name_length(name, prefix, origin),
+            check_name_suffix(name, origin),
+        ] {
+            if let Err(e) = check {
+                rejected.push(e.message);
+            }
+        }
+    }
+    if !rejected.is_empty() {
+        return Err(BuildError {
+            message: format!(
+                "{} unusable alias name(s):\n  {}",
+                rejected.len(),
+                rejected.join("\n  ")
+            ),
+        });
+    }
+
     for decl in decls {
         let Decl::Alias(Alias {
             name,
@@ -192,8 +236,6 @@ pub fn build(decls: &[Decl], resolved: &Resolved, prefix: &str) -> Result<Sets, 
         else {
             continue;
         };
-
-        check_name_length(name, prefix, origin)?;
 
         let port_field = port.as_ref().map(|p| port_spec(p, proto.as_deref()));
 
@@ -394,6 +436,24 @@ mod tests {
         assert_eq!(sets.by_name.len(), 1);
         assert_eq!(sets.get("ports", Family::V4).unwrap().name, "ports");
         assert!(sets.get("ports", Family::V6).is_none());
+    }
+
+    #[test]
+    fn an_alias_ending_in_v6_collides_with_the_v6_half_of_its_stem() {
+        let input = rec(&["alias", "a.sh", "1", "lan", "fd00::/64"])
+            + &rec(&["alias", "a.sh", "2", "lan_v6", "10.0.0.0/8"]);
+        let e = build(&parse(&input).unwrap(), &resolved(&[]), "CFW_N_").unwrap_err();
+        assert!(e.message.contains("lan_v6"), "{}", e.message);
+    }
+
+    #[test]
+    fn every_unusable_name_is_reported_in_one_pass() {
+        let input = rec(&["alias", "a.sh", "1", "lan_v6", "10.0.0.0/8"])
+            + &rec(&["alias", "b.sh", "7", "wan_v6", "10.1.0.0/16"]);
+        let e = build(&parse(&input).unwrap(), &resolved(&[]), "CFW_N_").unwrap_err();
+        assert!(e.message.contains("2 unusable"), "{}", e.message);
+        assert!(e.message.contains("a.sh:1"), "{}", e.message);
+        assert!(e.message.contains("b.sh:7"), "{}", e.message);
     }
 
     #[test]
