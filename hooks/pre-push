@@ -1,0 +1,31 @@
+#!/bin/bash
+# Pre-push checks.
+#
+# A rebase stages nothing, so pre-commit never sees what it grafted in; the
+# result is only visible at the tip being pushed.
+
+set -e
+
+zero=0000000000000000000000000000000000000000
+
+while read -r local_ref local_sha _remote_ref _remote_sha; do
+	[ "$local_sha" = "$zero" ] && continue
+
+	# The release tag exists to carry Cargo.lock; only branches must not.
+	case $local_ref in
+	refs/tags/*)
+		continue
+		;;
+	esac
+
+	if git ls-tree --name-only "$local_sha" -- Cargo.lock | grep -q .; then
+		cat 1>&2 <<-EOF
+			$local_ref tracks Cargo.lock, which belongs only on a release tag's
+			own commit. Rebasing onto the tag rather than onto the branch grafts
+			that commit in; rebase onto origin/master instead.
+		EOF
+		exit 1
+	fi
+done
+
+exit 0

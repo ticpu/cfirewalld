@@ -4,6 +4,13 @@
 
 set -e
 
+# Only a release tag's own detached commit carries the lock, and that commit is
+# made with HEAD detached.
+if git diff --cached --name-only | grep -qx 'Cargo.lock' && git symbolic-ref -q HEAD >/dev/null; then
+	echo "Cargo.lock is staged on $(git symbolic-ref --short HEAD); it belongs only on the release tag's commit, made with HEAD detached." 1>&2
+	exit 1
+fi
+
 staged_rs=$(git diff --cached --diff-filter=AM --name-only | grep '\.rs$' || true)
 staged_sh=$(git diff --cached --diff-filter=AM --name-only \
 	| grep -E '^(fw_reload|fw_vars|subcommands/|scripts/|tests/.*\.sh$)' || true)
