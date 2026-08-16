@@ -33,7 +33,9 @@ CONTAINER=$($CONTAINER_CMD create "$IMG")
 $CONTAINER_CMD cp "$CONTAINER:/app/cfw-build" "cfw-build.$SUFFIX"
 $CONTAINER_CMD cp "$CONTAINER:/app/glibc-floor" glibc-floor
 $CONTAINER_CMD rm "$CONTAINER"
-$CONTAINER_CMD image rm "$IMG"
+# The image is kept: its apt layer carries the cross toolchain, and rebuilding
+# that on every run costs more than the image occupies. Remove it with
+# `podman image rm cfirewalld-build:<triple>`.
 
 cp "cfw-build.$SUFFIX" cfw-build
 

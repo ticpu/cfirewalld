@@ -24,8 +24,12 @@ COPY . ./
 # The glibc floor is read off the binary rather than assumed: it moves with the
 # base image, and one that is too high runs on the build machine and dies at
 # exec everywhere older.
+# target/ is cached per target triple: without it every build recompiles the
+# whole dependency tree, which dwarfs the crate's own compile time. Two triples
+# would evict each other's artifacts from one cache, hence the id.
 RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry \
     --mount=type=cache,target=/usr/local/cargo/git,id=cargo-git \
+    --mount=type=cache,target=/app/target,id=cargo-target-${TARGET},sharing=locked \
     rustup target add "$TARGET" && \
     cargo build --release --target "$TARGET" && \
     cp "target/$TARGET/release/cfw-build" /app/cfw-build && \
